@@ -96,7 +96,45 @@
     @apply border-border;
   }
 
-  body {
-    @apply bg-background text-foreground font-sans antialiased;
+  html {
+    height: 100%;
+    background-color: hsl(var(--background));
   }
+
+  body {
+    @apply text-foreground font-sans antialiased;
+    height: 100%;
+    background-color: hsl(var(--background));
+    overscroll-behavior: none;
+  }
+
+  #root {
+    height: 100%;
+    background-color: hsl(var(--background));
+  }
+}
+
+/* Fix MUI Charts white background */
+.MuiChartsSurface-root {
+  background: transparent !important;
+}
+
+.MuiChartsAxis-root,
+.MuiChartsLegend-root,
+.MuiChartsGrid-root {
+  background: transparent !important;
+}
+
+/* Force all MUI chart SVG elements to have transparent backgrounds */
+.MuiChartsSurface-root svg,
+.MuiChartsAxis-root svg,
+.MuiLineChart-root svg,
+.MuiBarChart-root svg,
+.MuiPieChart-root svg {
+  background: transparent !important;
+}
+
+/* Override any white backgrounds from MUI components */
+[class*="MuiCharts"] {
+  background-color: transparent !important;
 }

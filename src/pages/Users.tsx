@@ -1,17 +1,29 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { User } from "@/types/admin";
-import { mockUsers } from "@/data/mockData";
-import { IconSearch, IconPlus, IconEdit, IconTrash } from "@tabler/icons-react";
+import { subscribeToUsers } from "@/services/firestore";
+import { IconSearch, IconEye } from "@tabler/icons-react";
 import Pagination from "@/components/Pagination";
 import UserModal from "@/components/UserModal";
 
 const Users = () => {
-  const [users, setUsers] = useState<User[]>(mockUsers);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
-  const itemsPerPage = 5;
+  const [viewingUser, setViewingUser] = useState<User | null>(null);
+  const itemsPerPage = 20;
+
+  useEffect(() => {
+    // Subscribe to real-time updates
+    const unsubscribe = subscribeToUsers((data) => {
+      setUsers(data);
+      setLoading(false);
+    });
+
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
+  }, []);
 
   const filteredUsers = users.filter(
     (user) =>
@@ -28,59 +40,26 @@ const Users = () => {
     startIndex + itemsPerPage
   );
 
-  const handleAddUser = () => {
-    setEditingUser(null);
+  const handleViewUser = (user: User) => {
+    setViewingUser(user);
     setIsModalOpen(true);
   };
-
-  const handleEditUser = (user: User) => {
-    setEditingUser(user);
-    setIsModalOpen(true);
-  };
-
-  const handleDeleteUser = (userId: string) => {
-    if (window.confirm("Are you sure you want to delete this user?")) {
-      setUsers(users.filter((u) => u.id !== userId));
-    }
-  };
-
-  const handleSaveUser = (userData: Omit<User, "id" | "createdAt">) => {
-    if (editingUser) {
-      setUsers(
-        users.map((u) =>
-          u.id === editingUser.id ? { ...u, ...userData } : u
-        )
-      );
-    } else {
-      const newUser: User = {
-        ...userData,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString().split("T")[0],
-      };
-      setUsers([...users, newUser]);
-    }
-    setIsModalOpen(false);
-  };
-
+  // Get the latest user data from the users array when modal is open
+  const modalUser = viewingUser 
+    ? users.find(u => u.id === viewingUser.id) || viewingUser 
+    : null;
   return (
-    <div className="p-6 md:p-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+    <div className="p-4 md:p-6 lg:p-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 md:mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Users</h1>
-          <p className="text-muted-foreground mt-1">Manage your users</p>
+          <h1 className="text-xl md:text-2xl font-bold">Users</h1>
+          <p className="text-sm md:text-base text-muted-foreground mt-1">Manage your users</p>
         </div>
-        <button
-          onClick={handleAddUser}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-md font-medium hover:opacity-90 transition-opacity"
-        >
-          <IconPlus className="h-4 w-4" />
-          Add User
-        </button>
       </div>
 
       <div className="bg-card border border-border rounded-lg">
-        <div className="p-4 border-b border-border">
-          <div className="relative max-w-sm">
+        <div className="p-3 md:p-4 border-b border-border">
+          <div className="relative max-w-full md:max-w-sm">
             <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
               type="text"
@@ -90,13 +69,22 @@ const Users = () => {
                 setCurrentPage(1);
               }}
               placeholder="Search users..."
-              className="w-full pl-10 pr-4 py-2 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full pl-10 pr-4 py-2 text-sm md:text-base rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full">
+        <div className="overflow-x-auto max-h-[400px] md:max-h-[600px] overflow-y-auto">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <p className="text-muted-foreground">Loading users...</p>
+            </div>
+          ) : paginatedUsers.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <p className="text-muted-foreground">No users found</p>
+            </div>
+          ) : (
+          <table className="w-full min-w-[800px]">
             <thead>
               <tr className="border-b border-border bg-muted/50">
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
@@ -118,7 +106,7 @@ const Users = () => {
                   Address
                 </th>
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Deposit
+                  Donation
                 </th>
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
                   Total Asset
@@ -145,37 +133,30 @@ const Users = () => {
                     {user.address}
                   </td>
                   <td className="px-4 py-3 text-sm">
-                    ${user.depositAmount.toLocaleString()}
+                    ₱{user.donationAmount.toLocaleString()}
                   </td>
                   <td className="px-4 py-3 text-sm font-medium">
-                    ${user.totalAsset.toLocaleString()}
+                    ₱{user.totalAsset.toLocaleString()}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleEditUser(user)}
-                        className="p-1.5 rounded-md hover:bg-accent transition-colors"
-                        aria-label="Edit user"
-                      >
-                        <IconEdit className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteUser(user.id)}
-                        className="p-1.5 rounded-md hover:bg-destructive/10 text-destructive transition-colors"
-                        aria-label="Delete user"
-                      >
-                        <IconTrash className="h-4 w-4" />
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleViewUser(user)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/10 hover:bg-primary/20 text-primary transition-colors text-sm font-medium"
+                      aria-label="View user"
+                    >
+                      <IconEye className="h-4 w-4" />
+                      View User
+                    </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          )}
         </div>
 
-        {filteredUsers.length > 0 && (
-          <div className="p-4 border-t border-border">
+        {!loading && filteredUsers.length > 0 && (
+          <div className="p-4 border-t border-border flex justify-end">
             <Pagination
               currentPage={currentPage}
               totalPages={totalPages}
@@ -183,19 +164,13 @@ const Users = () => {
             />
           </div>
         )}
-
-        {filteredUsers.length === 0 && (
-          <div className="p-8 text-center text-muted-foreground">
-            No users found
-          </div>
-        )}
       </div>
 
       <UserModal
+        key={modalUser?.id}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSave={handleSaveUser}
-        user={editingUser}
+        user={modalUser}
       />
     </div>
   );

@@ -1,18 +1,30 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Withdrawal } from "@/types/admin";
-import { mockWithdrawals } from "@/data/mockData";
+import { subscribeToWithdrawals, updateWithdrawalStatus } from "@/services/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { IconSend, IconCheck } from "@tabler/icons-react";
 import Pagination from "@/components/Pagination";
 import { useToast } from "@/hooks/use-toast";
 
 const Withdrawals = () => {
-  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>(mockWithdrawals);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const { adminType } = useAuth();
   const { toast } = useToast();
   const itemsPerPage = 5;
+
+  useEffect(() => {
+    // Subscribe to real-time withdrawals updates
+    const unsubscribe = subscribeToWithdrawals((data) => {
+      setWithdrawals(data);
+      setLoading(false);
+    });
+
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
+  }, []);
 
   const pendingWithdrawals = withdrawals.filter((w) => w.status === "pending");
   const totalPages = Math.ceil(pendingWithdrawals.length / itemsPerPage);
@@ -36,66 +48,108 @@ const Withdrawals = () => {
     );
   };
 
-  const handleSendIndividual = (id: string) => {
-    setWithdrawals((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, status: "sent" as const } : w))
-    );
-    setSelectedIds((prev) => prev.filter((i) => i !== id));
-    toast({
-      title: "Withdrawal sent",
-      description: "The withdrawal request has been sent to the finance team.",
-    });
+  const handleSendIndividual = async (id: string) => {
+    const success = await updateWithdrawalStatus(id, "approved", adminType || "");
+    if (success) {
+      toast({
+        title: "Withdrawal Approved",
+        description: "Payment has been processed successfully.",
+      });
+    } else {
+      toast({
+        title: "Error",
+        description: "Failed to approve withdrawal.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleSendAll = () => {
-    if (selectedIds.length === 0) {
+  const handleSendSelected = async () => {
+    if (adminType !== "finance") {
       toast({
-        title: "No withdrawals selected",
-        description: "Please select at least one withdrawal to send.",
+        title: "Unauthorized",
+        description: "Only finance admin can approve withdrawals.",
         variant: "destructive",
       });
       return;
     }
 
-    setWithdrawals((prev) =>
-      prev.map((w) =>
-        selectedIds.includes(w.id) ? { ...w, status: "sent" as const } : w
-      )
+    if (selectedIds.length === 0) {
+      toast({
+        title: "No Selection",
+        description: "Please select at least one withdrawal to approve.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const promises = selectedIds.map((id) =>
+      updateWithdrawalStatus(id, "approved", adminType)
     );
+    
+    await Promise.all(promises);
     setSelectedIds([]);
+    
     toast({
-      title: "Withdrawals sent",
-      description: `${selectedIds.length} withdrawal request(s) sent to the finance team.`,
+      title: "Withdrawals Approved",
+      description: `${selectedIds.length} withdrawal(s) have been approved.`,
+    });
+  };
+
+  const handleSendAll = async () => {
+    if (pendingWithdrawals.length === 0) {
+      toast({
+        title: "No Withdrawals",
+        description: "There are no pending withdrawals to send.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Sent to Finance",
+      description: `${pendingWithdrawals.length} withdrawal(s) sent to finance team for approval.`,
     });
   };
 
   const isFinanceAdmin = adminType === "finance";
 
+  if (loading) {
+    return (
+      <div className="p-4 md:p-6 lg:p-8">
+        <div className="flex items-center justify-center h-64">
+          <p className="text-muted-foreground">Loading withdrawals...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-6 md:p-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+    <div className="p-4 md:p-6 lg:p-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 md:mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Withdrawals</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-xl md:text-2xl font-bold">Withdrawals</h1>
+          <p className="text-sm md:text-base text-muted-foreground mt-1">
             {isFinanceAdmin
               ? "Review and process withdrawal requests"
               : "Manage withdrawal requests"}
           </p>
         </div>
-        {!isFinanceAdmin && selectedIds.length > 0 && (
+        {isFinanceAdmin && selectedIds.length > 0 && (
           <button
-            onClick={handleSendAll}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-md font-medium hover:opacity-90 transition-opacity"
+            onClick={handleSendSelected}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-md text-sm md:text-base font-medium hover:opacity-90 transition-opacity w-full sm:w-auto"
           >
-            <IconSend className="h-4 w-4" />
-            Send All Selected ({selectedIds.length})
+            <IconCheck className="h-4 w-4" />
+            <span className="hidden sm:inline">Approve Selected ({selectedIds.length})</span>
+            <span className="sm:hidden">Send ({selectedIds.length})</span>
           </button>
         )}
       </div>
 
       <div className="bg-card border border-border rounded-lg">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[800px]">
             <thead>
               <tr className="border-b border-border bg-muted/50">
                 {!isFinanceAdmin && (
@@ -121,7 +175,7 @@ const Withdrawals = () => {
                   Amount
                 </th>
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Bank Details
+                  E-Wallet(s)
                 </th>
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
                   Requested At
@@ -155,7 +209,7 @@ const Withdrawals = () => {
                     {withdrawal.userName}
                   </td>
                   <td className="px-4 py-3 text-sm font-medium">
-                    ${withdrawal.amount.toLocaleString()}
+                    ₱{withdrawal.amount.toLocaleString()}
                   </td>
                   <td className="px-4 py-3 text-sm">{withdrawal.bankDetails}</td>
                   <td className="px-4 py-3 text-sm">{withdrawal.requestedAt}</td>
@@ -191,11 +245,6 @@ const Withdrawals = () => {
 
         {pendingWithdrawals.length > 0 && (
           <div className="p-4 border-t border-border flex flex-col md:flex-row items-center justify-between gap-4">
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={setCurrentPage}
-            />
             {!isFinanceAdmin && (
               <button
                 onClick={handleSendAll}
@@ -205,6 +254,13 @@ const Withdrawals = () => {
                 Send All to Finance Team
               </button>
             )}
+            <div className="md:ml-auto">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </div>
           </div>
         )}
 
