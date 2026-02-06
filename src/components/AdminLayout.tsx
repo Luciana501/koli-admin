@@ -17,6 +17,7 @@ import {
   IconHeart,
   IconShieldCheck,
   IconStar,
+  IconTrophy,
 } from "@tabler/icons-react";
 import { motion } from "motion/react";
 import { subscribeToChatMessages } from "@/services/chat";
@@ -96,7 +97,7 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
           {
             label: "Reward History",
             href: "/reward-history",
-            icon: <IconChartLine className="h-5 w-5 shrink-0" />,
+            icon: <IconTrophy className="h-5 w-5 shrink-0" />,
           },
         ]
       : []),
