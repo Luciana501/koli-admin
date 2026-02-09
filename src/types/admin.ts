@@ -24,10 +24,22 @@ export interface Withdrawal {
   id: string;
   userId: string;
   userName: string;
+  userEmail: string;
+  userPhone: string;
   amount: number;
   status: "pending" | "approved" | "sent";
   requestedAt: string;
-  bankDetails: string;
+  processedAt: string | null;
+  processedBy: string | null;
+  contractId: string;
+  gcashNumber: string;
+  isPooled: boolean;
+  notes: string;
+  paymentMethod: string;
+  periodsWithdrawn: number;
+  totalWithdrawals: number;
+  transactionProof: string | null;
+  withdrawalNumber: number;
 }
 
 export interface Donation {
@@ -48,4 +60,20 @@ export interface Donation {
   userName?: string;
   userEmail?: string;
   userPhone?: string;
+}
+
+export interface RewardClaim {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  claimAmount: number;
+  claimedAt: string;
+  claimedDate: string;
+  poolAfter: number;
+  poolBefore: number;
+  rewardPoolId: string;
+  secretCode: string;
+  timeToClaim: number;
+  timeToClaimMinutes: number;
 }

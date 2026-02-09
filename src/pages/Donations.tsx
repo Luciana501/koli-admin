@@ -55,7 +55,7 @@ const Donations = () => {
   const handleApprove = async (id: string) => {
     setProcessingId(id);
     try {
-      await updateDonationStatus(id, "approved");
+      await updateDonationStatus(id, "active");
       toast({
         title: "Success",
         description: "Donation approved successfully",
@@ -302,7 +302,7 @@ const Donations = () => {
                         </td>
                         <td className="p-4 md:p-5">
                           <span className={`inline-flex px-3 py-1.5 rounded-full text-sm font-semibold ${
-                            donation.status === "approved" 
+                            donation.status === "active" 
                               ? "bg-green-500/15 text-green-600" 
                               : "bg-red-500/15 text-red-600"
                           }`}>
@@ -396,7 +396,7 @@ const Donations = () => {
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Status</p>
                     <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${
-                      selectedDonation.status === "approved" 
+                      selectedDonation.status === "active" 
                         ? "bg-green-500/15 text-green-600" 
                         : selectedDonation.status === "rejected"
                         ? "bg-red-500/15 text-red-600"

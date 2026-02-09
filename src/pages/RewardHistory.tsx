@@ -1,7 +1,9 @@
 import * as React from "react";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import AdminLayout from "../components/AdminLayout";
+import { RewardClaim } from "@/types/admin";
+import { IconGift, IconHistory } from "@tabler/icons-react";
 
 interface RewardHistoryItem {
   id?: string;
@@ -25,9 +27,11 @@ interface Member {
 }
 
 const RewardHistory: React.FC = () => {
+  const [activeTab, setActiveTab] = React.useState<"analytics" | "claims">("analytics");
   const [rewards, setRewards] = React.useState<RewardHistoryItem[]>([]);
   const [members, setMembers] = React.useState<Member[]>([]);
   const [claims, setClaims] = React.useState<any[]>([]);
+  const [rewardClaims, setRewardClaims] = React.useState<RewardClaim[]>([]);
   // UI input states for calendar only
   const [dateFromInput, setDateFromInput] = React.useState("");
   const [dateToInput, setDateToInput] = React.useState("");
@@ -38,6 +42,7 @@ const RewardHistory: React.FC = () => {
   const [dateFrom, setDateFrom] = React.useState<string>("");
   const [dateTo, setDateTo] = React.useState<string>("");
   const [filterTrigger, setFilterTrigger] = React.useState(0);
+  const [claimsSearch, setClaimsSearch] = React.useState("");
 
   React.useEffect(() => {
     const fetchRewards = async () => {
@@ -55,9 +60,16 @@ const RewardHistory: React.FC = () => {
       const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setClaims(data);
     };
+    const fetchRewardClaims = async () => {
+      const q = query(collection(db, "rewardClaims"), orderBy("claimedAt", "desc"));
+      const snap = await getDocs(q);
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as RewardClaim));
+      setRewardClaims(data);
+    };
     fetchRewards();
     fetchMembers();
     fetchClaims();
+    fetchRewardClaims();
   }, []);
 
 // Filter and sort rewards
@@ -123,6 +135,18 @@ const filteredRewards = React.useMemo(() => {
   return result;
 }, [rewards, claims, search, filter, statusFilter, dateFrom, dateTo, filterTrigger]);
 
+  // Filter reward claims
+  const filteredRewardClaims = React.useMemo(() => {
+    return rewardClaims.filter(claim => {
+      const matchesSearch = 
+        claim.userName?.toLowerCase().includes(claimsSearch.toLowerCase()) ||
+        claim.userEmail?.toLowerCase().includes(claimsSearch.toLowerCase()) ||
+        claim.secretCode?.toLowerCase().includes(claimsSearch.toLowerCase()) ||
+        claim.userId?.toLowerCase().includes(claimsSearch.toLowerCase());
+      return matchesSearch;
+    });
+  }, [rewardClaims, claimsSearch]);
+
   // Leaderboards
   const userClaimStats: Record<string, { total: number; count: number; times: number[] }> = {};
   claims.forEach((c: any) => {
@@ -152,7 +176,36 @@ const filteredRewards = React.useMemo(() => {
   return (
     <div className="max-w-7xl mx-auto p-8 font-['Montserrat'] bg-gray-50 min-h-screen" style={{ fontFamily: 'Montserrat, sans-serif' }}>
       <h2 className="text-3xl font-extrabold mb-8 text-center tracking-tight">Reward History</h2>
-      <div className="flex flex-row flex-wrap gap-4 mb-8 items-end justify-center max-w-7xl mx-auto">
+      
+      {/* Tab Navigation */}
+      <div className="flex justify-center gap-4 mb-8">
+        <button
+          onClick={() => setActiveTab("analytics")}
+          className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition ${
+            activeTab === "analytics"
+              ? "bg-black text-white"
+              : "bg-white text-gray-700 hover:bg-gray-100"
+          }`}
+        >
+          <IconGift size={20} />
+          Reward Analytics
+        </button>
+        <button
+          onClick={() => setActiveTab("claims")}
+          className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition ${
+            activeTab === "claims"
+              ? "bg-black text-white"
+              : "bg-white text-gray-700 hover:bg-gray-100"
+          }`}
+        >
+          <IconHistory size={20} />
+          Individual Claims
+        </button>
+      </div>
+
+      {activeTab === "analytics" ? (
+        <>
+          <div className="flex flex-row flex-wrap gap-4 mb-8 items-end justify-center max-w-7xl mx-auto">
         <input
           type="text"
           className="border rounded px-4 py-2 w-64"
@@ -294,6 +347,63 @@ const filteredRewards = React.useMemo(() => {
           </table>
         </div>
       </div>
+        </>
+      ) : (
+        <>
+          {/* Individual Claims Tab */}
+          <div className="mb-8 flex justify-center">
+            <input
+              type="text"
+              className="border rounded px-4 py-2 w-96"
+              placeholder="Search by user name, email, code, or user ID"
+              value={claimsSearch}
+              onChange={e => setClaimsSearch(e.target.value)}
+            />
+          </div>
+
+          <table className="w-full border border-gray-300 rounded-xl overflow-hidden shadow-sm bg-white font-['Montserrat']">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="text-left px-6 py-3 font-bold text-base">User Name</th>
+                <th className="text-left px-6 py-3 font-bold text-base">Email</th>
+                <th className="text-left px-6 py-3 font-bold text-base">Reward Code</th>
+                <th className="text-left px-6 py-3 font-bold text-base">Claim Amount</th>
+                <th className="text-left px-6 py-3 font-bold text-base">Pool Before</th>
+                <th className="text-left px-6 py-3 font-bold text-base">Pool After</th>
+                <th className="text-left px-6 py-3 font-bold text-base">Claimed At</th>
+                <th className="text-left px-6 py-3 font-bold text-base">Time to Claim</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRewardClaims.map((claim, idx) => {
+                const claimedDate = new Date(claim.claimedAt);
+                const timeMinutes = Math.abs(claim.timeToClaimMinutes);
+                const timeDisplay = timeMinutes < 60 
+                  ? `${timeMinutes}m` 
+                  : timeMinutes < 1440 
+                  ? `${Math.floor(timeMinutes / 60)}h ${timeMinutes % 60}m`
+                  : `${Math.floor(timeMinutes / 1440)}d ${Math.floor((timeMinutes % 1440) / 60)}h`;
+                
+                return (
+                  <tr
+                    key={claim.id}
+                    className={`border-b border-gray-200 transition font-['Montserrat'] ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-primary/5`}
+                  >
+                    <td className="px-6 py-3 align-middle text-sm font-semibold">{claim.userName}</td>
+                    <td className="px-6 py-3 align-middle text-sm">{claim.userEmail}</td>
+                    <td className="px-6 py-3 align-middle text-sm font-semibold">{claim.secretCode}</td>
+                    <td className="px-6 py-3 align-middle text-sm font-bold text-green-600">₱{claim.claimAmount.toFixed(2)}</td>
+                    <td className="px-6 py-3 align-middle text-sm">₱{claim.poolBefore.toFixed(2)}</td>
+                    <td className="px-6 py-3 align-middle text-sm">₱{claim.poolAfter.toFixed(2)}</td>
+                    <td className="px-6 py-3 align-middle text-sm">{claimedDate.toLocaleString()}</td>
+                    <td className="px-6 py-3 align-middle text-sm">{timeDisplay}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   );
 };

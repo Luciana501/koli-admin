@@ -198,9 +198,9 @@ export const subscribeToUsers = (callback: (users: User[]) => void) => {
   return unsubscribe;
 };
 
-// Real-time listener for withdrawals
+// Real-time listener for withdrawals from payout_queue
 export const subscribeToWithdrawals = (callback: (withdrawals: Withdrawal[]) => void) => {
-  const withdrawalsRef = collection(db, "withdrawals");
+  const withdrawalsRef = collection(db, "payout_queue");
   const q = query(withdrawalsRef, orderBy("requestedAt", "desc"));
   
   const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -210,11 +210,22 @@ export const subscribeToWithdrawals = (callback: (withdrawals: Withdrawal[]) => 
         id: doc.id,
         userId: data.userId || "",
         userName: data.userName || "",
+        userEmail: data.userEmail || "",
+        userPhone: data.userPhone || "",
         amount: data.amount || 0,
         status: data.status || "pending",
-        requestedAt: data.requestedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-        processedAt: data.processedAt?.toDate?.()?.toISOString(),
-        bankDetails: data.bankDetails || "",
+        requestedAt: data.requestedAt || new Date().toISOString(),
+        processedAt: data.processedAt || null,
+        processedBy: data.processedBy || null,
+        contractId: data.contractId || "",
+        gcashNumber: data.gcashNumber || "",
+        isPooled: data.isPooled || false,
+        notes: data.notes || "",
+        paymentMethod: data.paymentMethod || "",
+        periodsWithdrawn: data.periodsWithdrawn || 0,
+        totalWithdrawals: data.totalWithdrawals || 0,
+        transactionProof: data.transactionProof || null,
+        withdrawalNumber: data.withdrawalNumber || 0,
       };
     });
     callback(withdrawals);
@@ -291,10 +302,10 @@ export const updateUser = async (userId: string, updates: Partial<User>): Promis
   }
 };
 
-// Fetch all withdrawals
+// Fetch all withdrawals from payout_queue
 export const fetchWithdrawals = async (): Promise<Withdrawal[]> => {
   try {
-    const withdrawalsRef = collection(db, "withdrawals");
+    const withdrawalsRef = collection(db, "payout_queue");
     const snapshot = await getDocs(query(withdrawalsRef, orderBy("requestedAt", "desc")));
     
     const withdrawals: Withdrawal[] = snapshot.docs.map((doc) => {
@@ -303,11 +314,22 @@ export const fetchWithdrawals = async (): Promise<Withdrawal[]> => {
         id: doc.id,
         userId: data.userId || "",
         userName: data.userName || "",
+        userEmail: data.userEmail || "",
+        userPhone: data.userPhone || "",
         amount: data.amount || 0,
         status: data.status || "pending",
-        requestedAt: data.requestedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-        processedAt: data.processedAt?.toDate?.()?.toISOString(),
-        bankDetails: data.bankDetails || "",
+        requestedAt: data.requestedAt || new Date().toISOString(),
+        processedAt: data.processedAt || null,
+        processedBy: data.processedBy || null,
+        contractId: data.contractId || "",
+        gcashNumber: data.gcashNumber || "",
+        isPooled: data.isPooled || false,
+        notes: data.notes || "",
+        paymentMethod: data.paymentMethod || "",
+        periodsWithdrawn: data.periodsWithdrawn || 0,
+        totalWithdrawals: data.totalWithdrawals || 0,
+        transactionProof: data.transactionProof || null,
+        withdrawalNumber: data.withdrawalNumber || 0,
       };
     });
     
@@ -318,17 +340,17 @@ export const fetchWithdrawals = async (): Promise<Withdrawal[]> => {
   }
 };
 
-// Update withdrawal status
+// Update withdrawal status in payout_queue
 export const updateWithdrawalStatus = async (
   withdrawalId: string,
   status: "approved" | "rejected",
   processedBy?: string
 ): Promise<boolean> => {
   try {
-    const withdrawalRef = doc(db, "withdrawals", withdrawalId);
+    const withdrawalRef = doc(db, "payout_queue", withdrawalId);
     await updateDoc(withdrawalRef, {
       status,
-      processedAt: Timestamp.now(),
+      processedAt: new Date().toISOString(),
       processedBy: processedBy || "",
     });
     return true;
@@ -342,7 +364,7 @@ export const updateWithdrawalStatus = async (
 export const fetchDashboardStats = async () => {
   try {
     const usersSnapshot = await getDocs(collection(db, "members"));
-    const withdrawalsSnapshot = await getDocs(collection(db, "withdrawals"));
+    const withdrawalsSnapshot = await getDocs(collection(db, "payout_queue"));
     
     const totalUsers = usersSnapshot.size;
     let totalDonations = 0;
