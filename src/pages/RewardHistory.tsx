@@ -1,5 +1,5 @@
 import * as React from "react";
-import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, where, orderBy, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import AdminLayout from "../components/AdminLayout";
 import { RewardClaim } from "@/types/admin";
@@ -32,6 +32,7 @@ const RewardHistory: React.FC = () => {
   const [members, setMembers] = React.useState<Member[]>([]);
   const [claims, setClaims] = React.useState<any[]>([]);
   const [rewardClaims, setRewardClaims] = React.useState<RewardClaim[]>([]);
+  const [loading, setLoading] = React.useState(true);
   // UI input states for calendar only
   const [dateFromInput, setDateFromInput] = React.useState("");
   const [dateToInput, setDateToInput] = React.useState("");
@@ -46,30 +47,127 @@ const RewardHistory: React.FC = () => {
 
   React.useEffect(() => {
     const fetchRewards = async () => {
-      const snap = await getDocs(collection(db, "rewardsHistory"));
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as RewardHistoryItem));
-      setRewards(data);
+      try {
+        const snap = await getDocs(collection(db, "rewardsHistory"));
+        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as RewardHistoryItem));
+        console.log("Fetched rewards:", data);
+        setRewards(data);
+      } catch (error) {
+        console.error("Error fetching rewards:", error);
+      }
     };
+    
     const fetchMembers = async () => {
-      const snap = await getDocs(collection(db, "members"));
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Member));
-      setMembers(data);
+      try {
+        const snap = await getDocs(collection(db, "members"));
+        const data = snap.docs.map(doc => {
+          const docData = doc.data();
+          return {
+            id: doc.id,
+            name: docData.name || `${docData.firstName || ""} ${docData.lastName || ""}`.trim(),
+            email: docData.email || "",
+            firstName: docData.firstName || "",
+            lastName: docData.lastName || "",
+            phoneNumber: docData.phoneNumber || "",
+          } as Member;
+        });
+        console.log("Fetched members:", data);
+        setMembers(data);
+      } catch (error) {
+        console.error("Error fetching members:", error);
+      }
     };
+    
     const fetchClaims = async () => {
-      const snap = await getDocs(collection(db, "claims"));
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setClaims(data);
+      try {
+        const snap = await getDocs(collection(db, "claims"));
+        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        console.log("Fetched claims from 'claims' collection:", data.length, "documents");
+        if (data.length > 0) {
+          console.log("Sample claim:", data[0]);
+        }
+        setClaims(data);
+      } catch (error) {
+        console.error("Error fetching claims:", error);
+      }
     };
-    const fetchRewardClaims = async () => {
-      const q = query(collection(db, "rewardClaims"), orderBy("claimedAt", "desc"));
-      const snap = await getDocs(q);
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as RewardClaim));
-      setRewardClaims(data);
+    
+    // Check alternative collection names
+    const checkAlternativeCollections = async () => {
+      const alternativeNames = ["claim", "userClaims", "manaRewards", "rewardHistory"];
+      for (const name of alternativeNames) {
+        try {
+          const snap = await getDocs(collection(db, name));
+          if (snap.docs.length > 0) {
+            console.log(`Found ${snap.docs.length} documents in '${name}' collection`);
+            console.log("Sample doc:", snap.docs[0].data());
+          }
+        } catch (error) {
+          console.log(`Collection '${name}' does not exist or error:`, error);
+        }
+      }
     };
+    
+    // Use real-time listener for reward claims
+    // Try without orderBy first to see if data exists
+    const unsubscribeRewardClaims = onSnapshot(
+      collection(db, "rewardClaims"),
+      (snapshot) => {
+        console.log("=== REWARD CLAIMS SNAPSHOT ===");
+        console.log("Total documents:", snapshot.docs.length);
+        console.log("Empty:", snapshot.empty);
+        
+        const data = snapshot.docs.map(doc => {
+          const docData = doc.data();
+          console.log("Document ID:", doc.id);
+          console.log("Document data:", docData);
+          console.log("Fields:", Object.keys(docData));
+          
+          return {
+            id: doc.id,
+            userId: docData.userId || docData.uid || "",
+            userName: docData.userName || docData.name || "",
+            userEmail: docData.userEmail || docData.email || "",
+            claimAmount: docData.claimAmount || docData.amount || 0,
+            claimedAt: docData.claimedAt || docData.timestamp || docData.createdAt || new Date().toISOString(),
+            claimedDate: docData.claimedDate || docData.date || "",
+            poolAfter: docData.poolAfter || docData.afterPool || 0,
+            poolBefore: docData.poolBefore || docData.beforePool || 0,
+            rewardPoolId: docData.rewardPoolId || docData.poolId || "",
+            secretCode: docData.secretCode || docData.code || docData.rewardCode || "",
+            timeToClaim: docData.timeToClaim || 0,
+            timeToClaimMinutes: docData.timeToClaimMinutes || 0,
+          } as RewardClaim;
+        });
+        
+        console.log("Processed reward claims count:", data.length);
+        console.log("Processed data sample:", data.slice(0, 2));
+        
+        // Sort by claimedAt in memory since we can't use orderBy
+        const sortedData = data.sort((a, b) => {
+          const dateA = new Date(a.claimedAt).getTime();
+          const dateB = new Date(b.claimedAt).getTime();
+          return dateB - dateA; // Descending order
+        });
+        
+        setRewardClaims(sortedData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error listening to reward claims:", error);
+        console.error("Error details:", error.message);
+        setLoading(false);
+      }
+    );
+
     fetchRewards();
     fetchMembers();
     fetchClaims();
-    fetchRewardClaims();
+    checkAlternativeCollections();
+    
+    return () => {
+      unsubscribeRewardClaims();
+    };
   }, []);
 
 // Filter and sort rewards
@@ -173,6 +271,14 @@ const filteredRewards = React.useMemo(() => {
     .sort((a, b) => a.avgTime - b.avgTime)
     .slice(0, 5);
 
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto p-8 font-['Montserrat'] bg-gray-50 min-h-screen flex items-center justify-center">
+        <p className="text-lg text-gray-600">Loading reward claims...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto p-8 font-['Montserrat'] bg-gray-50 min-h-screen" style={{ fontFamily: 'Montserrat, sans-serif' }}>
       <h2 className="text-3xl font-extrabold mb-8 text-center tracking-tight">Reward History</h2>
@@ -199,7 +305,7 @@ const filteredRewards = React.useMemo(() => {
           }`}
         >
           <IconHistory size={20} />
-          Individual Claims
+          Individual Claims ({rewardClaims.length})
         </button>
       </div>
 
@@ -361,7 +467,13 @@ const filteredRewards = React.useMemo(() => {
             />
           </div>
 
-          <table className="w-full border border-gray-300 rounded-xl overflow-hidden shadow-sm bg-white font-['Montserrat']">
+          {filteredRewardClaims.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-lg text-gray-600">No reward claims found.</p>
+              <p className="text-sm text-gray-500 mt-2">Claims will appear here when users claim rewards.</p>
+            </div>
+          ) : (
+            <table className="w-full border border-gray-300 rounded-xl overflow-hidden shadow-sm bg-white font-['Montserrat']">
             <thead>
               <tr className="bg-gray-100">
                 <th className="text-left px-6 py-3 font-bold text-base">User Name</th>
@@ -402,6 +514,7 @@ const filteredRewards = React.useMemo(() => {
               })}
             </tbody>
           </table>
+          )}
         </>
       )}
     </div>

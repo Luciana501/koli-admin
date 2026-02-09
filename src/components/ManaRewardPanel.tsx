@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useState, useEffect } from "react";
-import { doc, getDoc, collection, getDocs, addDoc } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, addDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 type RewardHistoryItem = {
@@ -18,12 +18,12 @@ type RewardHistoryItem = {
 
 const ManaRewardPanel = () => {
   const [inputCode, setInputCode] = React.useState("");
-  const [inputPool, setInputPool] = React.useState(0);
+  const [inputPool, setInputPool] = React.useState("");
   const [activeCode, setActiveCode] = React.useState("");
   const [totalPool, setTotalPool] = React.useState(0);
   const [remaining, setRemaining] = React.useState(0);
   const [expiresAt, setExpiresAt] = React.useState("");
-  const [expirationValue, setExpirationValue] = React.useState(0);
+  const [expirationValue, setExpirationValue] = React.useState("");
   const [expirationUnit, setExpirationUnit] = React.useState("minutes");
   const [createdAt, setCreatedAt] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -54,6 +54,33 @@ const ManaRewardPanel = () => {
 
       const rewardsHistoryRef = collection(db, "rewardsHistory");
       const rewardsHistorySnap = await getDocs(rewardsHistoryRef);
+      
+      // Check for expired rewards and update them
+      const now = new Date();
+      const batch = writeBatch(db);
+      let expiredCount = 0;
+      
+      rewardsHistorySnap.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.status === 'active' && data.expiresAt) {
+          const expires = new Date(data.expiresAt);
+          if (expires < now) {
+            // Update this document to expired status
+            batch.update(docSnap.ref, { 
+              status: 'expired',
+              expiredAt: now.toISOString()
+            });
+            expiredCount++;
+          }
+        }
+      });
+      
+      // Commit batch update if there are expired rewards
+      if (expiredCount > 0) {
+        await batch.commit();
+        console.log(`Auto-expired ${expiredCount} reward code(s)`);
+      }
+      
       const hist: RewardHistoryItem[] = rewardsHistorySnap.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as RewardHistoryItem))
         .sort((a, b) => {
@@ -80,7 +107,7 @@ const ManaRewardPanel = () => {
       let multiplier = 1;
       if (expirationUnit === "hours") multiplier = 60;
       if (expirationUnit === "days") multiplier = 60 * 24;
-      const expires = new Date(now.getTime() + expirationValue * multiplier * 60 * 1000);
+      const expires = new Date(now.getTime() + Number(expirationValue) * multiplier * 60 * 1000);
 
       // Fetch previous remaining pool
       let prevRemaining = 0;
@@ -94,7 +121,7 @@ const ManaRewardPanel = () => {
       }
 
       // If previous code is still active, accumulate
-      let newRemainingPool = inputPool;
+      let newRemainingPool = Number(inputPool);
       if (prevExpiresAt && new Date(prevExpiresAt) > now) {
         newRemainingPool += prevRemaining;
       }
@@ -103,7 +130,7 @@ const ManaRewardPanel = () => {
       await import("firebase/firestore").then(({ setDoc }) =>
         setDoc(doc(db, "globalRewards", "currentActiveReward"), {
           activeCode: inputCode,
-          totalPool: inputPool,
+          totalPool: Number(inputPool),
           remainingPool: newRemainingPool,
           createdAt: now.toISOString(),
           expiresAt: expires.toISOString(),
@@ -114,7 +141,7 @@ const ManaRewardPanel = () => {
       // Add to rewardsHistory for admin/history
       await addDoc(collection(db, "rewardsHistory"), {
         secretCode: inputCode,
-        pool: inputPool,
+        pool: Number(inputPool),
         createdAt: now.toISOString(),
         expiresAt: expires.toISOString(),
         type: "mana",
@@ -122,12 +149,12 @@ const ManaRewardPanel = () => {
       });
 
       setActiveCode(inputCode);
-      setTotalPool(inputPool);
+      setTotalPool(Number(inputPool));
       setRemaining(newRemainingPool);
       setCreatedAt(now.toISOString());
       setExpiresAt(expires.toISOString());
       setInputCode("");
-      setInputPool(0);
+      setInputPool("");
       fetchRewards();
     } catch (e) {
       setError("Failed to generate reward");
@@ -165,7 +192,7 @@ const ManaRewardPanel = () => {
           <input
             type="number"
             value={inputPool}
-            onChange={e => setInputPool(Number(e.target.value))}
+            onChange={e => setInputPool(e.target.value)}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-lg text-left bg-white"
             placeholder="Enter total pool"
             style={{ textAlign: 'left' }}
@@ -178,7 +205,7 @@ const ManaRewardPanel = () => {
               type="number"
               min={0}
               value={expirationValue}
-              onChange={e => setExpirationValue(Number(e.target.value))}
+              onChange={e => setExpirationValue(e.target.value)}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-lg text-left bg-white"
               placeholder="Expiration"
               style={{ textAlign: 'left' }}
@@ -198,14 +225,15 @@ const ManaRewardPanel = () => {
         <button
           type="button"
           onClick={handleGenerate}
-          className="w-full py-3 mt-2 bg-black text-white rounded-lg font-bold text-lg tracking-wide hover:bg-primary/90 transition shadow-md"
+          className="w-full py-3 mt-2 bg-black text-white rounded-lg font-bold text-lg tracking-wide hover:bg-primary/90 transition shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           disabled={
             loading ||
             !inputCode ||
             !inputPool
           }
         >
-          Generate
+          {loading && <span className="loading loading-infinity loading-md"></span>}
+          {loading ? "Generating..." : "Generate"}
         </button>
         <div className="flex flex-col gap-2 mt-4">
           <label className="text-sm font-semibold mb-1">Remaining Balance</label>

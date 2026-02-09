@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Withdrawal } from "@/types/admin";
 import { subscribeToWithdrawals, updateWithdrawalStatus } from "@/services/firestore";
 import { useAuth } from "@/context/AuthContext";
-import { IconSend, IconCheck, IconEye } from "@tabler/icons-react";
+import { IconSend, IconCheck, IconEye, IconX } from "@tabler/icons-react";
 import Pagination from "@/components/Pagination";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -12,6 +12,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 
 interface GroupedWithdrawal {
   id: string;
@@ -31,10 +33,18 @@ const Withdrawals = () => {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
+  const [returnsPage, setReturnsPage] = useState(1);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<GroupedWithdrawal | null>(null);
-  const [activeTab, setActiveTab] = useState<"pending" | "history">("pending");
+  const [activeTab, setActiveTab] = useState<"pending" | "history" | "returns">("pending");
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectNote, setRejectNote] = useState("");
+  const [rejectGroup, setRejectGroup] = useState<GroupedWithdrawal | null>(null);
+  const [returnModalOpen, setReturnModalOpen] = useState(false);
+  const [returnNote, setReturnNote] = useState("");
+  const [returnGroup, setReturnGroup] = useState<GroupedWithdrawal | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { adminType } = useAuth();
   const { toast } = useToast();
   const itemsPerPage = 5;
@@ -52,12 +62,15 @@ const Withdrawals = () => {
 
   // Group withdrawals by userId + requestedAt
   const groupedWithdrawals = useMemo(() => {
-    const pending = withdrawals.filter((w) => w.status === "pending");
+    let filtered: Withdrawal[] = [];
+    if (adminType === "finance") {
+      filtered = withdrawals.filter((w) => w.status === "sent");
+    } else {
+      filtered = withdrawals.filter((w) => w.status === "pending");
+    }
     const groups = new Map<string, GroupedWithdrawal>();
-
-    pending.forEach((withdrawal) => {
+    filtered.forEach((withdrawal) => {
       const key = `${withdrawal.userId}_${withdrawal.requestedAt}`;
-      
       if (groups.has(key)) {
         const group = groups.get(key)!;
         group.withdrawals.push(withdrawal);
@@ -77,11 +90,10 @@ const Withdrawals = () => {
         });
       }
     });
-
     return Array.from(groups.values());
-  }, [withdrawals]);
+  }, [withdrawals, adminType]);
 
-  // Group history withdrawals (approved/rejected)
+  // Group history withdrawals (approved)
   const groupedHistory = useMemo(() => {
     const history = withdrawals.filter((w) => w.status === "approved" || w.status === "sent");
     const groups = new Map<string, GroupedWithdrawal>();
@@ -112,10 +124,43 @@ const Withdrawals = () => {
     return Array.from(groups.values());
   }, [withdrawals]);
 
+  // Group returns (rejected by finance, for main admin only)
+  const groupedReturns = useMemo(() => {
+    const returns = withdrawals.filter((w) => w.status === "rejected");
+    const groups = new Map<string, GroupedWithdrawal>();
+
+    returns.forEach((withdrawal) => {
+      const key = `${withdrawal.userId}_${withdrawal.requestedAt}`;
+      
+      if (groups.has(key)) {
+        const group = groups.get(key)!;
+        group.withdrawals.push(withdrawal);
+        group.amount += withdrawal.amount;
+      } else {
+        groups.set(key, {
+          id: key,
+          userId: withdrawal.userId,
+          userName: withdrawal.userName,
+          userEmail: withdrawal.userEmail,
+          userPhone: withdrawal.userPhone,
+          amount: withdrawal.amount,
+          requestedAt: withdrawal.requestedAt,
+          paymentMethod: withdrawal.paymentMethod,
+          isPooled: withdrawal.isPooled,
+          withdrawals: [withdrawal],
+        });
+      }
+    });
+
+    return Array.from(groups.values());
+  }, [withdrawals]);
+
   const totalPages = Math.ceil(groupedWithdrawals.length / itemsPerPage);
   const historyTotalPages = Math.ceil(groupedHistory.length / itemsPerPage);
+  const returnsTotalPages = Math.ceil(groupedReturns.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const historyStartIndex = (historyPage - 1) * itemsPerPage;
+  const returnsStartIndex = (returnsPage - 1) * itemsPerPage;
   const paginatedGroups = groupedWithdrawals.slice(
     startIndex,
     startIndex + itemsPerPage
@@ -123,6 +168,10 @@ const Withdrawals = () => {
   const paginatedHistory = groupedHistory.slice(
     historyStartIndex,
     historyStartIndex + itemsPerPage
+  );
+  const paginatedReturns = groupedReturns.slice(
+    returnsStartIndex,
+    returnsStartIndex + itemsPerPage
   );
 
   const handleSelectAll = () => {
@@ -146,24 +195,126 @@ const Withdrawals = () => {
 
   const handleApproveGroup = async (group: GroupedWithdrawal) => {
     const withdrawalIds = group.withdrawals.map(w => w.id);
-    const promises = withdrawalIds.map((id) =>
-      updateWithdrawalStatus(id, "approved", adminType || "")
-    );
-    
-    const results = await Promise.all(promises);
-    const allSuccess = results.every(r => r);
-    
-    if (allSuccess) {
-      toast({
-        title: "Withdrawal Approved",
-        description: `₱${group.amount.toLocaleString()} payment has been processed successfully.`,
-      });
+    if (adminType === "finance") {
+      // Finance approves
+      const promises = withdrawalIds.map((id) =>
+        updateWithdrawalStatus(id, "approved", adminType || "")
+      );
+      const results = await Promise.all(promises);
+      const allSuccess = results.every(r => r);
+      if (allSuccess) {
+        toast({
+          title: "Withdrawal Approved",
+          description: `₱${group.amount.toLocaleString()} payment has been processed successfully.`,
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to approve some withdrawals.",
+          variant: "destructive",
+        });
+      }
     } else {
+      // Main admin sends to finance
+      const promises = withdrawalIds.map((id) =>
+        updateWithdrawalStatus(id, "sent", adminType || "")
+      );
+      await Promise.all(promises);
       toast({
-        title: "Error",
-        description: "Failed to approve some withdrawals.",
+        title: "Sent to Finance",
+        description: `Withdrawal request sent to finance team for processing.`,
+      });
+    }
+  };
+
+  const handleRejectGroup = (group: GroupedWithdrawal) => {
+    setRejectGroup(group);
+    setRejectNote("");
+    setRejectModalOpen(true);
+  };
+
+  const confirmRejectGroup = async () => {
+    if (!rejectGroup) return;
+    if (!rejectNote.trim()) {
+      toast({
+        title: "Note Required",
+        description: "Please provide a reason for rejection.",
         variant: "destructive",
       });
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      const withdrawalIds = rejectGroup.withdrawals.map(w => w.id);
+      const promises = withdrawalIds.map((id) =>
+        updateWithdrawalStatus(id, "rejected", adminType || "", rejectNote)
+      );
+      await Promise.all(promises);
+      
+      toast({
+        title: "Withdrawal Rejected",
+        description: "Withdrawal(s) have been rejected and returned to the main admin.",
+        variant: "destructive",
+      });
+      
+      // Close modal and reset state after successful submission
+      setRejectModalOpen(false);
+      setRejectGroup(null);
+      setRejectNote("");
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to reject withdrawal. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleReturnToUser = (group: GroupedWithdrawal) => {
+    setReturnGroup(group);
+    setReturnNote("");
+    setReturnModalOpen(true);
+  };
+
+  const confirmReturnToUser = async () => {
+    if (!returnGroup) return;
+    if (!returnNote.trim()) {
+      toast({
+        title: "Note Required",
+        description: "Please add a note for the user.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      const withdrawalIds = returnGroup.withdrawals.map(w => w.id);
+      const promises = withdrawalIds.map((id) =>
+        updateWithdrawalStatus(id, "returned", adminType || "", returnNote)
+      );
+      await Promise.all(promises);
+      
+      toast({
+        title: "Returned to User",
+        description: "Withdrawal(s) have been returned to the user with your note.",
+      });
+      
+      // Close modal and reset state after successful submission
+      setReturnModalOpen(false);
+      setReturnGroup(null);
+      setReturnNote("");
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to return withdrawal. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -212,6 +363,12 @@ const Withdrawals = () => {
       return;
     }
 
+    const allWithdrawalIds = groupedWithdrawals.flatMap(g => g.withdrawals.map(w => w.id));
+    const promises = allWithdrawalIds.map((id) =>
+      updateWithdrawalStatus(id, "sent", adminType || "")
+    );
+    await Promise.all(promises);
+
     toast({
       title: "Sent to Finance",
       description: `${groupedWithdrawals.length} withdrawal(s) sent to finance team for approval.`,
@@ -248,7 +405,7 @@ const Withdrawals = () => {
           >
             <IconCheck className="h-4 w-4" />
             <span className="hidden sm:inline">Approve Selected ({selectedGroupIds.length})</span>
-            <span className="sm:hidden">Send ({selectedGroupIds.length})</span>
+            <span className="sm:hidden">Approve ({selectedGroupIds.length})</span>
           </button>
         )}
       </div>
@@ -275,6 +432,18 @@ const Withdrawals = () => {
         >
           History ({groupedHistory.length})
         </button>
+        {!isFinanceAdmin && (
+          <button
+            onClick={() => setActiveTab("returns")}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+              activeTab === "returns"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Returns ({groupedReturns.length})
+          </button>
+        )}
       </div>
 
       {activeTab === "pending" && (
@@ -283,7 +452,7 @@ const Withdrawals = () => {
           <table className="w-full min-w-[1200px]">
             <thead>
               <tr className="border-b border-border bg-muted/50">
-                {!isFinanceAdmin && (
+                {isFinanceAdmin && (
                   <th className="w-12 px-4 py-3">
                     <input
                       type="checkbox"
@@ -331,7 +500,7 @@ const Withdrawals = () => {
                   key={group.id}
                   className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
                 >
-                  {!isFinanceAdmin && (
+                  {isFinanceAdmin && (
                     <td className="px-4 py-3">
                       <input
                         type="checkbox"
@@ -365,8 +534,10 @@ const Withdrawals = () => {
                     {new Date(group.requestedAt).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning/10 text-warning">
-                      Pending
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      (adminType === "finance") ? "bg-primary/10 text-primary" : "bg-warning/10 text-warning"
+                    }`}>
+                      {(adminType === "finance") ? "For Approval" : "Pending"}
                     </span>
                   </td>
                   <td className="px-4 py-3">
@@ -378,14 +549,23 @@ const Withdrawals = () => {
                         <IconEye className="h-3.5 w-3.5" />
                         View
                       </button>
-                      {isFinanceAdmin ? (
-                        <button
-                          onClick={() => handleApproveGroup(group)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-success text-success-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
-                        >
-                          <IconCheck className="h-3.5 w-3.5" />
-                          Approve
-                        </button>
+                      {adminType === "finance" ? (
+                        <>
+                          <button
+                            onClick={() => handleApproveGroup(group)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+                          >
+                            <IconCheck className="h-3.5 w-3.5" />
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleRejectGroup(group)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+                          >
+                            <IconX className="h-3.5 w-3.5" />
+                            Reject
+                          </button>
+                        </>
                       ) : (
                         <button
                           onClick={() => handleApproveGroup(group)}
@@ -550,6 +730,182 @@ const Withdrawals = () => {
       </div>
       )}
 
+      {activeTab === "returns" && !isFinanceAdmin && (
+      <div className="bg-card border border-border rounded-lg">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1200px]">
+            <thead>
+              <tr className="border-b border-border bg-muted/50">
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  #
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  User
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Contact
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Amount
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Payment Method
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Finance Note
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Rejected At
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedReturns.map((group, index) => {
+                const firstWithdrawal = group.withdrawals[0];
+                return (
+                  <tr
+                    key={group.id}
+                    className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
+                  >
+                    <td className="px-4 py-3 text-sm">{returnsStartIndex + index + 1}</td>
+                    <td className="px-4 py-3">
+                      <div className="text-sm font-medium">{group.userName}</div>
+                      <div className="text-xs text-muted-foreground">{group.userEmail}</div>
+                    </td>
+                    <td className="px-4 py-3 text-sm">{group.userPhone}</td>
+                    <td className="px-4 py-3 text-sm font-medium">
+                      ₱{group.amount.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-sm">{group.paymentMethod}</div>
+                    </td>
+                    <td className="px-4 py-3 text-sm max-w-[200px] truncate">
+                      {firstWithdrawal.financeNote || "-"}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {firstWithdrawal.processedAt 
+                        ? new Date(firstWithdrawal.processedAt).toLocaleDateString()
+                        : '-'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => handleReturnToUser(group)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+                      >
+                        <IconSend className="h-3.5 w-3.5" />
+                        Return to User
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {groupedReturns.length > 0 && (
+          <div className="p-4 border-t border-border flex justify-end">
+            <Pagination
+              currentPage={returnsPage}
+              totalPages={returnsTotalPages}
+              onPageChange={setReturnsPage}
+            />
+          </div>
+        )}
+
+        {groupedReturns.length === 0 && (
+          <div className="p-8 text-center text-muted-foreground">
+            No returned withdrawals
+          </div>
+        )}
+      </div>
+      )}
+
+      {/* Reject Modal (Finance Admin) */}
+      <Dialog open={rejectModalOpen} onOpenChange={setRejectModalOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Reject Withdrawal</DialogTitle>
+            <DialogDescription>
+              Please provide a reason for rejection. This will be sent to the main admin.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              rows={4}
+              value={rejectNote}
+              onChange={(e) => setRejectNote(e.target.value)}
+              placeholder="Enter reason for rejection (e.g., Invalid bank account, insufficient documentation, etc.)"
+              className="resize-none"
+            />
+            <div className="flex justify-end gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setRejectModalOpen(false)}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={confirmRejectGroup}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Sending..." : "Reject Withdrawal"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Return to User Modal (Main Admin) */}
+      <Dialog open={returnModalOpen} onOpenChange={setReturnModalOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Return Withdrawal to User</DialogTitle>
+            <DialogDescription>
+              Review the finance team's note and add your message for the user.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-1 block">Finance Team Note:</label>
+              <div className="bg-red-50 border border-red-200 text-red-800 p-3 rounded text-sm">
+                {returnGroup?.withdrawals[0].financeNote || "No note provided"}
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Your Note to User:</label>
+              <Textarea
+                rows={4}
+                value={returnNote}
+                onChange={(e) => setReturnNote(e.target.value)}
+                placeholder="Enter your message for the user explaining why the withdrawal was rejected and what they need to do..."
+                className="resize-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setReturnModalOpen(false)}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={confirmReturnToUser}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Sending..." : "Send to User"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Details Modal */}
       <Dialog open={detailsModalOpen} onOpenChange={setDetailsModalOpen}>
         <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
@@ -591,6 +947,24 @@ const Withdrawals = () => {
                   </div>
                 </div>
               </div>
+
+              {/* Notes Section */}
+              {(selectedGroup.withdrawals[0].financeNote || selectedGroup.withdrawals[0].mainAdminNote) && (
+                <div className="space-y-2">
+                  {selectedGroup.withdrawals[0].financeNote && (
+                    <div className="bg-red-50 border border-red-200 p-3 rounded">
+                      <p className="text-sm font-medium text-red-900 mb-1">Finance Team Note:</p>
+                      <p className="text-sm text-red-800">{selectedGroup.withdrawals[0].financeNote}</p>
+                    </div>
+                  )}
+                  {selectedGroup.withdrawals[0].mainAdminNote && (
+                    <div className="bg-yellow-50 border border-yellow-200 p-3 rounded">
+                      <p className="text-sm font-medium text-yellow-900 mb-1">Admin Note:</p>
+                      <p className="text-sm text-yellow-800">{selectedGroup.withdrawals[0].mainAdminNote}</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Individual Withdrawals */}
               <div className="space-y-2">

@@ -226,6 +226,8 @@ export const subscribeToWithdrawals = (callback: (withdrawals: Withdrawal[]) => 
         totalWithdrawals: data.totalWithdrawals || 0,
         transactionProof: data.transactionProof || null,
         withdrawalNumber: data.withdrawalNumber || 0,
+        financeNote: data.financeNote || "",
+        mainAdminNote: data.mainAdminNote || "",
       };
     });
     callback(withdrawals);
@@ -343,16 +345,24 @@ export const fetchWithdrawals = async (): Promise<Withdrawal[]> => {
 // Update withdrawal status in payout_queue
 export const updateWithdrawalStatus = async (
   withdrawalId: string,
-  status: "approved" | "rejected",
-  processedBy?: string
+  status: "pending" | "sent" | "approved" | "rejected" | "returned",
+  processedBy?: string,
+  note?: string
 ): Promise<boolean> => {
   try {
     const withdrawalRef = doc(db, "payout_queue", withdrawalId);
-    await updateDoc(withdrawalRef, {
+    const updateData: any = {
       status,
       processedAt: new Date().toISOString(),
       processedBy: processedBy || "",
-    });
+    };
+    if (status === "rejected") {
+      updateData.financeNote = note || "";
+    }
+    if (status === "returned") {
+      updateData.mainAdminNote = note || "";
+    }
+    await updateDoc(withdrawalRef, updateData);
     return true;
   } catch (error) {
     console.error("Error updating withdrawal:", error);

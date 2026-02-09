@@ -27,7 +27,7 @@ export interface Withdrawal {
   userEmail: string;
   userPhone: string;
   amount: number;
-  status: "pending" | "approved" | "sent";
+  status: "pending" | "sent" | "approved" | "rejected" | "returned";
   requestedAt: string;
   processedAt: string | null;
   processedBy: string | null;
@@ -40,6 +40,8 @@ export interface Withdrawal {
   totalWithdrawals: number;
   transactionProof: string | null;
   withdrawalNumber: number;
+  financeNote?: string;
+  mainAdminNote?: string;
 }
 
 export interface Donation {

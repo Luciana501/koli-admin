@@ -55,7 +55,7 @@ const Donations = () => {
   const handleApprove = async (id: string) => {
     setProcessingId(id);
     try {
-      await updateDonationStatus(id, "active");
+      await updateDonationStatus(id, "approved");
       toast({
         title: "Success",
         description: "Donation approved successfully",
@@ -302,11 +302,17 @@ const Donations = () => {
                         </td>
                         <td className="p-4 md:p-5">
                           <span className={`inline-flex px-3 py-1.5 rounded-full text-sm font-semibold ${
-                            donation.status === "active" 
-                              ? "bg-green-500/15 text-green-600" 
-                              : "bg-red-500/15 text-red-600"
+                            ["approved", "active"].includes(donation.status)
+                              ? "bg-green-500/15 text-green-600"
+                              : donation.status === "rejected"
+                                ? "bg-red-500/15 text-red-600"
+                                : "bg-amber-500/15 text-amber-600"
                           }`}>
-                            {donation.status.charAt(0).toUpperCase() + donation.status.slice(1)}
+                            {["approved", "active"].includes(donation.status)
+                              ? "Approved"
+                              : donation.status === "rejected"
+                                ? "Rejected"
+                                : "Pending"}
                           </span>
                         </td>
                         <td className="p-4 md:p-5">
@@ -367,6 +373,14 @@ const Donations = () => {
                     <p className="text-xs text-muted-foreground mb-1">Phone Number</p>
                     <p className="font-semibold">{selectedDonation.userPhone || "N/A"}</p>
                   </div>
+
+
+
+
+
+
+
+                  
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Referral Code</p>
                     <p className="font-semibold text-muted-foreground italic">Coming soon</p>
@@ -396,13 +410,17 @@ const Donations = () => {
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Status</p>
                     <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${
-                      selectedDonation.status === "active" 
-                        ? "bg-green-500/15 text-green-600" 
+                      ["approved", "active"].includes(selectedDonation.status)
+                        ? "bg-green-500/15 text-green-600"
                         : selectedDonation.status === "rejected"
                         ? "bg-red-500/15 text-red-600"
                         : "bg-amber-500/15 text-amber-600"
                     }`}>
-                      {selectedDonation.status.charAt(0).toUpperCase() + selectedDonation.status.slice(1)}
+                      {["approved", "active"].includes(selectedDonation.status)
+                        ? "Approved"
+                        : selectedDonation.status === "rejected"
+                        ? "Rejected"
+                        : "Pending"}
                     </span>
                   </div>
                 </div>
@@ -441,6 +459,12 @@ const Donations = () => {
                         console.error("❌ Failed to load receipt image");
                         console.error("URL:", selectedReceiptUrl);
                         console.error("Error event:", e);
+                        setSelectedReceiptUrl("");
+                        toast({
+                          title: "Receipt Image Error",
+                          description: "Failed to load the receipt image. It may have been removed or the link is invalid.",
+                          variant: "destructive",
+                        });
                       }}
                     />
                   </div>
