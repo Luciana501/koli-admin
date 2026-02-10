@@ -42,6 +42,16 @@ export interface Withdrawal {
   withdrawalNumber: number;
   financeNote?: string;
   mainAdminNote?: string;
+  // Additional fields from payout_queue collection
+  actualAmountWithdrawn?: number;
+  grossAmount?: number;
+  netAmount?: number;
+  platformFee?: number;
+  remainingBalance?: number;
+  totalWithdrawnSoFar?: number;
+  withdrawalSessionId?: string;
+  // Correct total withdrawable balance calculated using calculateTotalWithdrawable logic
+  totalWithdrawableBalance?: number;
 }
 
 export interface Donation {

@@ -516,8 +516,11 @@ const Withdrawals = () => {
                     <div className="text-xs text-muted-foreground">{group.userEmail}</div>
                   </td>
                   <td className="px-4 py-3 text-sm">{group.userPhone}</td>
-                  <td className="px-4 py-3 text-sm font-medium">
-                    ₱{group.amount.toLocaleString()}
+                  <td className="px-4 py-3">
+                    <div className="text-sm font-medium">₱{(group.withdrawals[0].netAmount || group.amount).toLocaleString()}</div>
+                    {group.withdrawals[0].platformFee && (
+                      <div className="text-xs text-red-600">Fee: ₱{group.withdrawals[0].platformFee.toLocaleString()}</div>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="text-sm">{group.paymentMethod}</div>
@@ -665,8 +668,11 @@ const Withdrawals = () => {
                       <div className="text-xs text-muted-foreground">{group.userEmail}</div>
                     </td>
                     <td className="px-4 py-3 text-sm">{group.userPhone}</td>
-                    <td className="px-4 py-3 text-sm font-medium">
-                      ₱{group.amount.toLocaleString()}
+                    <td className="px-4 py-3">
+                      <div className="text-sm font-medium">₱{(group.withdrawals[0].netAmount || group.amount).toLocaleString()}</div>
+                      {group.withdrawals[0].platformFee && (
+                        <div className="text-xs text-red-600">Fee: ₱{group.withdrawals[0].platformFee.toLocaleString()}</div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm">{group.paymentMethod}</div>
@@ -776,8 +782,11 @@ const Withdrawals = () => {
                       <div className="text-xs text-muted-foreground">{group.userEmail}</div>
                     </td>
                     <td className="px-4 py-3 text-sm">{group.userPhone}</td>
-                    <td className="px-4 py-3 text-sm font-medium">
-                      ₱{group.amount.toLocaleString()}
+                    <td className="px-4 py-3">
+                      <div className="text-sm font-medium">₱{(group.withdrawals[0].netAmount || group.amount).toLocaleString()}</div>
+                      {group.withdrawals[0].platformFee && (
+                        <div className="text-xs text-red-600">Fee: ₱{group.withdrawals[0].platformFee.toLocaleString()}</div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm">{group.paymentMethod}</div>
@@ -938,12 +947,45 @@ const Withdrawals = () => {
                     <p className="font-medium">{selectedGroup.paymentMethod}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Total Amount</p>
-                    <p className="font-bold text-primary text-lg">₱{selectedGroup.amount.toLocaleString()}</p>
+                    <p className="text-muted-foreground">Session ID</p>
+                    <p className="font-medium text-xs">{selectedGroup.withdrawals[0].withdrawalSessionId || 'N/A'}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Requested At</p>
-                    <p className="font-medium">{new Date(selectedGroup.requestedAt).toLocaleString()}</p>
+                    <p className="font-medium">{new Date(selectedGroup.requestedAt).toLocaleDateString()}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Amount Breakdown */}
+              <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                <h3 className="font-semibold text-sm mb-3 text-blue-900">Amount Breakdown</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-blue-700">Gross Amount</p>
+                    <p className="font-bold text-blue-900">₱{(selectedGroup.withdrawals[0].grossAmount || selectedGroup.amount).toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700">Platform Fee ({
+                      selectedGroup.withdrawals[0].platformFee && selectedGroup.withdrawals[0].grossAmount 
+                        ? ((selectedGroup.withdrawals[0].platformFee / selectedGroup.withdrawals[0].grossAmount) * 100).toFixed(1)
+                        : '0.0'
+                    }%)</p>
+                    <p className="font-bold text-red-600">-₱{(selectedGroup.withdrawals[0].platformFee || 0).toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700">Net Amount</p>
+                    <p className="font-bold text-green-600">₱{(selectedGroup.withdrawals[0].netAmount || selectedGroup.withdrawals[0].amount || selectedGroup.amount).toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700">Total Withdrawable Balance</p>
+                    <p className="font-medium text-blue-900">₱{(selectedGroup.withdrawals[0].totalWithdrawableBalance || selectedGroup.withdrawals[0].remainingBalance || 0).toLocaleString()}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {selectedGroup.withdrawals[0].totalWithdrawableBalance 
+                        ? "Calculated using calculateTotalWithdrawable logic" 
+                        : "⚠️ Using legacy remainingBalance field - update your withdrawal creation code"
+                      }
+                    </p>
                   </div>
                 </div>
               </div>
@@ -966,13 +1008,24 @@ const Withdrawals = () => {
                 </div>
               )}
 
+              {/* Withdrawal Policy Info */}
+              <div className="bg-blue-50 border border-blue-200 p-3 rounded">
+                <p className="text-sm font-medium text-blue-900 mb-1">Withdrawal Policy:</p>
+                <ul className="text-sm text-blue-800 space-y-1 ml-4 list-disc">
+                  <li>Users can only submit one withdrawal request at a time</li>
+                  <li>New withdrawals are blocked until current request is approved or successful</li>
+                  <li>If rejected, the money is returned to user's withdrawable pool automatically</li>
+                  <li>Platform fee is deducted from gross amount before payout</li>
+                </ul>
+              </div>
+
               {/* Individual Withdrawals */}
               <div className="space-y-2">
                 <h3 className="font-semibold text-sm">Individual Withdrawals ({selectedGroup.withdrawals.length})</h3>
                 <div className="space-y-2">
                   {selectedGroup.withdrawals.map((withdrawal, idx) => (
                     <div key={withdrawal.id} className="border border-border rounded-lg p-3">
-                      <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-xs font-semibold">
                             #{idx + 1}
@@ -981,26 +1034,64 @@ const Withdrawals = () => {
                             Contract: {withdrawal.contractId.slice(-8)}
                           </span>
                         </div>
-                        <span className="text-lg font-bold text-primary">
-                          ₱{withdrawal.amount.toLocaleString()}
-                        </span>
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-primary">
+                            ₱{(withdrawal.netAmount || withdrawal.amount).toLocaleString()}
+                          </div>
+                          {withdrawal.platformFee && (
+                            <div className="text-xs text-red-600">
+                              Fee: ₱{withdrawal.platformFee.toLocaleString()}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                      
+                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground mb-2">
                         <div>
                           <span className="font-medium">Withdrawal #:</span> {withdrawal.withdrawalNumber}
                         </div>
                         <div>
                           <span className="font-medium">Type:</span> {withdrawal.isPooled ? 'Pooled' : 'Regular'}
                         </div>
-                        {withdrawal.isPooled && (
+                        <div>
+                          <span className="font-medium">Total W/D:</span> {withdrawal.totalWithdrawals}
+                        </div>
+                        <div>
+                          <span className="font-medium">Total Withdrawn:</span> ₱{(withdrawal.totalWithdrawnSoFar || 0).toLocaleString()}
+                        </div>
+                        {withdrawal.isPooled && withdrawal.periodsWithdrawn && (
                           <div>
                             <span className="font-medium">Periods:</span> {withdrawal.periodsWithdrawn}
                           </div>
                         )}
                         <div>
-                          <span className="font-medium">Total W/D:</span> {withdrawal.totalWithdrawals}
+                          <span className="font-medium">Remaining:</span> ₱{(withdrawal.totalWithdrawableBalance || withdrawal.remainingBalance || 0).toLocaleString()}
+                          {!withdrawal.totalWithdrawableBalance && withdrawal.remainingBalance && (
+                            <span className="text-red-500 ml-1 text-xs">⚠️</span>
+                          )}
                         </div>
                       </div>
+
+                      {/* Amount Details */}
+                      {(withdrawal.grossAmount || withdrawal.platformFee) && (
+                        <div className="bg-gray-50 p-2 rounded text-xs mb-2">
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <span className="font-medium text-gray-600">Gross:</span>
+                              <div className="font-semibold">₱{(withdrawal.grossAmount || withdrawal.amount).toLocaleString()}</div>
+                            </div>
+                            <div>
+                              <span className="font-medium text-red-600">Platform Fee:</span>
+                              <div className="font-semibold text-red-700">₱{(withdrawal.platformFee || 0).toLocaleString()}</div>
+                            </div>
+                            <div>
+                              <span className="font-medium text-green-600">Net Amount:</span>
+                              <div className="font-semibold text-green-700">₱{(withdrawal.netAmount || withdrawal.amount).toLocaleString()}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {withdrawal.notes && (
                         <div className="mt-2 text-xs bg-muted/50 p-2 rounded">
                           <span className="font-medium">Notes:</span> {withdrawal.notes}
@@ -1009,6 +1100,14 @@ const Withdrawals = () => {
                       {withdrawal.gcashNumber && (
                         <div className="mt-2 text-xs">
                           <span className="font-medium">GCash:</span> {withdrawal.gcashNumber}
+                        </div>
+                      )}
+                      {withdrawal.transactionProof && (
+                        <div className="mt-2 text-xs">
+                          <span className="font-medium">Transaction Proof:</span> 
+                          <a href={withdrawal.transactionProof} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline ml-1">
+                            View Proof
+                          </a>
                         </div>
                       )}
                     </div>

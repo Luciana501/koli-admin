@@ -4,6 +4,8 @@ import { subscribeToDonations, updateDonationStatus } from "@/services/firestore
 import { IconCheck, IconX, IconEye, IconDownload } from "@tabler/icons-react";
 import Pagination from "@/components/Pagination";
 import { useToast } from "@/hooks/use-toast";
+import { ref, getDownloadURL } from "firebase/storage";
+import { storage } from "@/lib/firebase";
 import {
   Dialog,
   DialogContent,
@@ -96,13 +98,29 @@ const Donations = () => {
       console.log("Receipt URL:", donation.receiptURL);
       console.log("Receipt Path:", donation.receiptPath);
       
-      if (donation.receiptURL) {
-        console.log("Opening receipt URL:", donation.receiptURL);
-        setSelectedReceiptUrl(donation.receiptURL);
+      let receiptUrl = donation.receiptURL;
+      
+      // Always try to get fresh download URL from path if available
+      if (donation.receiptPath) {
+        console.log("Fetching fresh URL from storage path...");
+        try {
+          const storageRef = ref(storage, donation.receiptPath);
+          const freshUrl = await getDownloadURL(storageRef);
+          console.log("✅ Fresh URL fetched:", freshUrl);
+          receiptUrl = freshUrl;
+        } catch (error) {
+          console.error("Failed to fetch fresh URL, using stored URL:", error);
+          // Fall back to stored receiptURL
+        }
+      }
+      
+      if (receiptUrl) {
+        console.log("Opening receipt with URL:", receiptUrl);
+        setSelectedReceiptUrl(receiptUrl);
         setSelectedDonation(donation);
         setReceiptModalOpen(true);
       } else {
-        console.log("No receipt URL found for donation:", donation.id);
+        console.log("No receipt URL available for donation:", donation.id);
         toast({
           title: "Receipt Not Found",
           description: "Receipt URL not available.",
@@ -455,14 +473,38 @@ const Donations = () => {
                         console.log("✅ Receipt image loaded successfully");
                         console.log("Image URL:", selectedReceiptUrl);
                       }}
-                      onError={(e) => {
+                      onError={async (e) => {
                         console.error("❌ Failed to load receipt image");
                         console.error("URL:", selectedReceiptUrl);
                         console.error("Error event:", e);
+                        
+                        // Try to fetch fresh URL from path if available and haven't retried yet
+                        if (selectedDonation?.receiptPath) {
+                          try {
+                            console.log("Attempting to fetch fresh URL from storage path...");
+                            const storageRef = ref(storage, selectedDonation.receiptPath);
+                            const freshUrl = await getDownloadURL(storageRef);
+                            
+                            // Only retry if we got a different URL
+                            if (freshUrl !== selectedReceiptUrl) {
+                              console.log("✅ Got fresh URL, retrying...");
+                              setSelectedReceiptUrl(freshUrl);
+                              return; // Don't show error toast yet, retry with new URL
+                            } else {
+                              console.log("⚠️ Fresh URL is same as failed URL");
+                            }
+                          } catch (retryError) {
+                            console.error("Failed to fetch fresh URL:", retryError);
+                          }
+                        } else {
+                          console.error("No receipt path available for retry");
+                        }
+                        
+                        // If we get here, retry failed or wasn't possible
                         setSelectedReceiptUrl("");
                         toast({
                           title: "Receipt Image Error",
-                          description: "Failed to load the receipt image. It may have been removed or the link is invalid.",
+                          description: "Failed to load the receipt image. The file may not exist or you don't have permission to view it.",
                           variant: "destructive",
                         });
                       }}

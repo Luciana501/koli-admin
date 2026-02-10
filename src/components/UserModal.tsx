@@ -1,6 +1,8 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { User } from "@/types/admin";
 import { IconX } from "@tabler/icons-react";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 interface UserModalProps {
   isOpen: boolean;
@@ -13,6 +15,56 @@ const UserModal: React.FC<UserModalProps> = ({
   onClose,
   user,
 }) => {
+  const [totalWithdrawals, setTotalWithdrawals] = useState<number>(0);
+  const [totalRewardsClaimed, setTotalRewardsClaimed] = useState<number>(0);
+  const [isLoadingStats, setIsLoadingStats] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchUserStats = async () => {
+      setIsLoadingStats(true);
+      try {
+        // Fetch total withdrawals (approved only)
+        const withdrawalsRef = collection(db, "withdrawals");
+        const withdrawalsQuery = query(
+          withdrawalsRef,
+          where("userId", "==", user.id),
+          where("status", "==", "approved")
+        );
+        const withdrawalsSnapshot = await getDocs(withdrawalsQuery);
+        
+        const withdrawalTotal = withdrawalsSnapshot.docs.reduce((sum, doc) => {
+          const data = doc.data();
+          return sum + (data.amount || 0);
+        }, 0);
+        
+        setTotalWithdrawals(withdrawalTotal);
+
+        // Fetch total rewards claimed
+        const rewardsRef = collection(db, "rewardClaims");
+        const rewardsQuery = query(
+          rewardsRef,
+          where("userId", "==", user.id)
+        );
+        const rewardsSnapshot = await getDocs(rewardsQuery);
+        
+        const rewardsTotal = rewardsSnapshot.docs.reduce((sum, doc) => {
+          const data = doc.data();
+          return sum + (data.claimAmount || 0);
+        }, 0);
+        
+        setTotalRewardsClaimed(rewardsTotal);
+      } catch (error) {
+        console.error("Error fetching user stats:", error);
+      } finally {
+        setIsLoadingStats(false);
+      }
+    };
+
+    fetchUserStats();
+  }, [user]);
+
   if (!isOpen || !user) return null;
 
   return (
@@ -67,6 +119,25 @@ const UserModal: React.FC<UserModalProps> = ({
             <div className="space-y-2">
               <label className="text-sm font-medium text-muted-foreground">Total Asset</label>
               <p className="text-base font-medium">₱{user.totalAsset.toLocaleString()}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-muted-foreground">Total Withdrawals</label>
+              {isLoadingStats ? (
+                <p className="text-base font-medium text-muted-foreground italic">Loading...</p>
+              ) : (
+                <p className="text-base font-medium">₱{totalWithdrawals.toLocaleString()}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-muted-foreground">Total Rewards Claimed</label>
+              {isLoadingStats ? (
+                <p className="text-base font-medium text-muted-foreground italic">Loading...</p>
+              ) : (
+                <p className="text-base font-medium">₱{totalRewardsClaimed.toLocaleString()}</p>
+              )}
             </div>
           </div>
 

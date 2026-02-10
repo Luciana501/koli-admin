@@ -10,7 +10,7 @@ export interface ReportData {
 }
 
 // Fetch analytics data for reports
-export const fetchReportAnalytics = async (type: "users" | "donations" | "assets", timeRange: string) => {
+export const fetchReportAnalytics = async (type: "users" | "donations" | "assets" | "rewards", timeRange: string) => {
   try {
     const now = new Date();
     let startDate = new Date();
@@ -120,7 +120,7 @@ export const fetchReportAnalytics = async (type: "users" | "donations" | "assets
       });
 
       return result;
-    } else {
+    } else if (type === "assets") {
       // Get total assets over time
       const usersRef = collection(db, "members");
       const snapshot = await getDocs(usersRef);
@@ -147,6 +147,49 @@ export const fetchReportAnalytics = async (type: "users" | "donations" | "assets
         if (createdAt && createdAt >= startDate) {
           const dateKey = createdAt.toISOString().split('T')[0];
           dataMap.set(dateKey, (dataMap.get(dateKey) || 0) + totalAsset);
+        }
+      });
+
+      const result: ReportData[] = [];
+      const sortedDates = Array.from(dataMap.keys()).sort();
+      let cumulativeAmount = 0;
+      
+      sortedDates.forEach((dateKey) => {
+        cumulativeAmount += dataMap.get(dateKey) || 0;
+        result.push({
+          date: new Date(dateKey),
+          amount: cumulativeAmount,
+        });
+      });
+
+      return result;
+    } else {
+      // Get total rewards claimed over time
+      const rewardsRef = collection(db, "rewardClaims");
+      const snapshot = await getDocs(rewardsRef);
+      
+      const dataMap = new Map<string, number>();
+      
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        let claimedAt: Date | null = null;
+        
+        // Handle different date formats
+        if (data.claimedAt) {
+          if (typeof data.claimedAt.toDate === 'function') {
+            claimedAt = data.claimedAt.toDate();
+          } else if (data.claimedAt instanceof Date) {
+            claimedAt = data.claimedAt;
+          } else if (typeof data.claimedAt === 'string') {
+            claimedAt = new Date(data.claimedAt);
+          }
+        }
+        
+        const claimAmount = data.claimAmount || 0;
+        
+        if (claimedAt && claimedAt >= startDate) {
+          const dateKey = claimedAt.toISOString().split('T')[0];
+          dataMap.set(dateKey, (dataMap.get(dateKey) || 0) + claimAmount);
         }
       });
 
@@ -228,6 +271,16 @@ export const subscribeToWithdrawals = (callback: (withdrawals: Withdrawal[]) => 
         withdrawalNumber: data.withdrawalNumber || 0,
         financeNote: data.financeNote || "",
         mainAdminNote: data.mainAdminNote || "",
+        // Additional fields from payout_queue collection
+        actualAmountWithdrawn: data.actualAmountWithdrawn || 0,
+        grossAmount: data.grossAmount || 0,
+        netAmount: data.netAmount || 0,
+        platformFee: data.platformFee || 0,
+        remainingBalance: data.remainingBalance || 0,
+        totalWithdrawnSoFar: data.totalWithdrawnSoFar || 0,
+        withdrawalSessionId: data.withdrawalSessionId || "",
+        // New field for correct withdrawable balance calculation
+        totalWithdrawableBalance: data.totalWithdrawableBalance || 0,
       };
     });
     callback(withdrawals);
@@ -442,6 +495,19 @@ export const subscribeToDonations = (callback: (donations: Donation[]) => void) 
         }
       }
       
+      // Generate fresh download URL from receipt path if available
+      let receiptURL = data.receiptURL || "";
+      if (data.receiptPath) {
+        try {
+          const storageRef = ref(storage, data.receiptPath);
+          receiptURL = await getDownloadURL(storageRef);
+        } catch (error) {
+          console.error("Error getting receipt download URL:", error);
+          // Fall back to stored receiptURL if getDownloadURL fails
+          receiptURL = data.receiptURL || "";
+        }
+      }
+      
       return {
         id: docSnapshot.id,
         userId: data.userId || "",
@@ -451,7 +517,7 @@ export const subscribeToDonations = (callback: (donations: Donation[]) => void) 
         donationAmount: data.donationAmount || 0,
         paymentMethod: data.paymentMethod || "",
         receiptPath: data.receiptPath || "",
-        receiptURL: data.receiptURL || "",
+        receiptURL,
         status: data.status || "pending",
         createdAt: data.createdAt || new Date().toISOString(),
         approvedAt: data.approvedAt || null,
@@ -501,7 +567,7 @@ export const updateDonationStatus = async (
       
       // Calculate contract end date (30 days from now)
       const endDate = new Date(now);
-      endDate.setDate(endDate.getDate() + 30);
+      endDate.setDate(endDate.getDate() + 365);
       updateData.contractEndDate = endDate.toISOString();
     }
     

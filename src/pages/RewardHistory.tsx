@@ -9,7 +9,7 @@ interface RewardHistoryItem {
   id?: string;
   createdAt: string;
   expiresAt: string;
-  pool: number;
+  pool?: number;
   secretCode: string;
   status: string;
   type: string;
@@ -30,7 +30,6 @@ const RewardHistory: React.FC = () => {
   const [activeTab, setActiveTab] = React.useState<"analytics" | "claims">("analytics");
   const [rewards, setRewards] = React.useState<RewardHistoryItem[]>([]);
   const [members, setMembers] = React.useState<Member[]>([]);
-  const [claims, setClaims] = React.useState<any[]>([]);
   const [rewardClaims, setRewardClaims] = React.useState<RewardClaim[]>([]);
   const [loading, setLoading] = React.useState(true);
   // UI input states for calendar only
@@ -38,7 +37,7 @@ const RewardHistory: React.FC = () => {
   const [dateToInput, setDateToInput] = React.useState("");
   // Actual filter states
   const [search, setSearch] = React.useState("");
-  const [filter, setFilter] = React.useState("most");
+  const [filter, setFilter] = React.useState("latest");
   const [statusFilter, setStatusFilter] = React.useState<string>("");
   const [dateFrom, setDateFrom] = React.useState<string>("");
   const [dateTo, setDateTo] = React.useState<string>("");
@@ -49,9 +48,29 @@ const RewardHistory: React.FC = () => {
     const fetchRewards = async () => {
       try {
         const snap = await getDocs(collection(db, "rewardsHistory"));
-        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as RewardHistoryItem));
-        console.log("Fetched rewards:", data);
-        setRewards(data);
+        const rawData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as RewardHistoryItem));
+        
+        // Remove duplicates and filter out 'unknown' status entries
+        const uniqueSecretCodes = new Set();
+        const filteredData = rawData.filter(item => {
+          // Skip entries with unknown status if we have a better version
+          if (item.status === 'unknown' && rawData.some(other => 
+            other.secretCode === item.secretCode && other.status !== 'unknown'
+          )) {
+            return false;
+          }
+          
+          // Skip duplicates, keeping the first occurrence
+          if (uniqueSecretCodes.has(item.secretCode)) {
+            return false;
+          }
+          
+          uniqueSecretCodes.add(item.secretCode);
+          return true;
+        });
+        
+        console.log("Fetched rewards:", filteredData);
+        setRewards(filteredData);
       } catch (error) {
         console.error("Error fetching rewards:", error);
       }
@@ -78,19 +97,7 @@ const RewardHistory: React.FC = () => {
       }
     };
     
-    const fetchClaims = async () => {
-      try {
-        const snap = await getDocs(collection(db, "claims"));
-        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        console.log("Fetched claims from 'claims' collection:", data.length, "documents");
-        if (data.length > 0) {
-          console.log("Sample claim:", data[0]);
-        }
-        setClaims(data);
-      } catch (error) {
-        console.error("Error fetching claims:", error);
-      }
-    };
+    // No longer need to fetch claims - using rewardClaims from real-time listener
     
     // Check alternative collection names
     const checkAlternativeCollections = async () => {
@@ -162,7 +169,6 @@ const RewardHistory: React.FC = () => {
 
     fetchRewards();
     fetchMembers();
-    fetchClaims();
     checkAlternativeCollections();
     
     return () => {
@@ -207,31 +213,71 @@ const filteredRewards = React.useMemo(() => {
   });
 
   // Sorting
-  if (filter === "most") {
+  if (filter === "latest") {
     result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => {
-      const aClaims = claims.filter((c: any) => c.rewardCode === a.secretCode).reduce((sum: number, c: any) => sum + (c.claimedAmount || 0), 0);
-      const bClaims = claims.filter((c: any) => c.rewardCode === b.secretCode).reduce((sum: number, c: any) => sum + (c.claimedAmount || 0), 0);
+      const aTime = new Date(a.createdAt).getTime();
+      const bTime = new Date(b.createdAt).getTime();
+      return bTime - aTime; // Newest first
+    });
+  } else if (filter === "oldest") {
+    result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => {
+      const aTime = new Date(a.createdAt).getTime();
+      const bTime = new Date(b.createdAt).getTime();
+      return aTime - bTime; // Oldest first
+    });
+  } else if (filter === "most") {
+    result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => {
+      const aClaims = rewardClaims.filter((claim) => claim.secretCode === a.secretCode).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
+      const bClaims = rewardClaims.filter((claim) => claim.secretCode === b.secretCode).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
       return bClaims - aClaims;
     });
   } else if (filter === "least") {
     result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => {
-      const aClaims = claims.filter((c: any) => c.rewardCode === a.secretCode).reduce((sum: number, c: any) => sum + (c.claimedAmount || 0), 0);
-      const bClaims = claims.filter((c: any) => c.rewardCode === b.secretCode).reduce((sum: number, c: any) => sum + (c.claimedAmount || 0), 0);
+      const aClaims = rewardClaims.filter((claim) => claim.secretCode === a.secretCode).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
+      const bClaims = rewardClaims.filter((claim) => claim.secretCode === b.secretCode).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
       return aClaims - bClaims;
     });
   } else if (filter === "first") {
     result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => {
-      const aFirst = claims.filter((c: any) => c.rewardCode === a.secretCode).sort((x: any, y: any) => new Date(x.claimedAt).getTime() - new Date(y.claimedAt).getTime())[0];
-      const bFirst = claims.filter((c: any) => c.rewardCode === b.secretCode).sort((x: any, y: any) => new Date(x.claimedAt).getTime() - new Date(y.claimedAt).getTime())[0];
-      const aTime = aFirst ? (new Date(aFirst.claimedAt).getTime() - new Date(a.createdAt).getTime()) : Infinity;
-      const bTime = bFirst ? (new Date(bFirst.claimedAt).getTime() - new Date(b.createdAt).getTime()) : Infinity;
+      const aFiltered = rewardClaims.filter((claim) => claim.secretCode === a.secretCode);
+      const bFiltered = rewardClaims.filter((claim) => claim.secretCode === b.secretCode);
+      
+      const getTime = (dateValue) => {
+        if (!dateValue) return 0;
+        try {
+          if (typeof dateValue === 'object' && 
+              dateValue !== null && 
+              typeof dateValue.toDate === 'function') {
+            return dateValue.toDate().getTime();
+          }
+          const date = new Date(dateValue);
+          return isNaN(date.getTime()) ? 0 : date.getTime();
+        } catch (error) {
+          console.error('Error parsing date value:', error, dateValue);
+          return 0;
+        }
+      };
+      
+      const aFirst = aFiltered.sort((x, y) => {
+        const xTime = getTime(x.claimedAt);
+        const yTime = getTime(y.claimedAt);
+        return xTime - yTime;
+      })[0];
+      const bFirst = bFiltered.sort((x, y) => {
+        const xTime = getTime(x.claimedAt);
+        const yTime = getTime(y.claimedAt);
+        return xTime - yTime;
+      })[0];
+      
+      const aTime = aFirst && a.createdAt ? (getTime(aFirst.claimedAt) - new Date(a.createdAt).getTime()) : Infinity;
+      const bTime = bFirst && b.createdAt ? (getTime(bFirst.claimedAt) - new Date(b.createdAt).getTime()) : Infinity;
       return aTime - bTime;
     });
   } else if (filter === "pool") {
     result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => b.pool - a.pool);
   }
   return result;
-}, [rewards, claims, search, filter, statusFilter, dateFrom, dateTo, filterTrigger]);
+}, [rewards, rewardClaims, search, filter, statusFilter, dateFrom, dateTo, filterTrigger]);
 
   // Filter reward claims
   const filteredRewardClaims = React.useMemo(() => {
@@ -245,14 +291,37 @@ const filteredRewards = React.useMemo(() => {
     });
   }, [rewardClaims, claimsSearch]);
 
-  // Leaderboards
+  // Leaderboards - use rewardClaims
   const userClaimStats: Record<string, { total: number; count: number; times: number[] }> = {};
-  claims.forEach((c: any) => {
-    if (!userClaimStats[c.userId]) userClaimStats[c.userId] = { total: 0, count: 0, times: [] };
-    userClaimStats[c.userId].total += c.claimedAmount || 0;
-    userClaimStats[c.userId].count += 1;
-    if (c.claimedAt && c.codeCreatedAt) {
-      userClaimStats[c.userId].times.push(new Date(c.claimedAt).getTime() - new Date(c.codeCreatedAt).getTime());
+  rewardClaims.forEach((claim) => {
+    if (!userClaimStats[claim.userId]) userClaimStats[claim.userId] = { total: 0, count: 0, times: [] };
+    userClaimStats[claim.userId].total += claim.claimAmount || 0;
+    userClaimStats[claim.userId].count += 1;
+    
+    // Calculate time to claim using reward creation time from rewards array
+    const reward = rewards.find(r => r.secretCode === claim.secretCode);
+    if (claim.claimedAt && reward?.createdAt) {
+      const getTime = (dateValue) => {
+        if (!dateValue) return 0;
+        try {
+          if (typeof dateValue === 'object' && 
+              dateValue !== null && 
+              typeof dateValue.toDate === 'function') {
+            return dateValue.toDate().getTime();
+          }
+          const date = new Date(dateValue);
+          return isNaN(date.getTime()) ? 0 : date.getTime();
+        } catch (error) {
+          console.error('Error parsing date value:', error, dateValue);
+          return 0;
+        }
+      };
+      
+      const claimedTime = getTime(claim.claimedAt);
+      const createdTime = new Date(reward.createdAt).getTime();
+      if (claimedTime && createdTime) {
+        userClaimStats[claim.userId].times.push(claimedTime - createdTime);
+      }
     }
   });
   // Top claimers
@@ -311,209 +380,366 @@ const filteredRewards = React.useMemo(() => {
 
       {activeTab === "analytics" ? (
         <>
-          <div className="flex flex-row flex-wrap gap-4 mb-8 items-end justify-center max-w-7xl mx-auto">
-        <input
-          type="text"
-          className="border rounded px-4 py-2 w-64"
-          placeholder="Search by user name or ID"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        <select
-          className="border rounded px-4 py-2"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-        >
-          <option value="most">Most Claimed</option>
-          <option value="first">Fastest First Claim</option>
-          <option value="least">Least Claimed</option>
-          <option value="pool">Pool Size</option>
-        </select>
-        <select
-          className="border rounded px-4 py-2"
-          value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value)}
-        >
-          <option value="">All Statuses</option>
-          <option value="active">Active</option>
-          <option value="expired">Expired</option>
-          <option value="depleted">Depleted</option>
-        </select>
-        <label className="text-sm">From:
-          <input type="date" className="ml-2 border rounded px-2 py-1" value={dateFromInput} onChange={e => setDateFromInput(e.target.value)} />
-        </label>
-        <label className="text-sm">To:
-          <input type="date" className="ml-2 border rounded px-2 py-1" value={dateToInput} onChange={e => setDateToInput(e.target.value)} />
-        </label>
-        <div className="flex items-center h-full">
-          <button
-            className="ml-2 px-4 py-2 bg-black text-white rounded shadow hover:bg-gray-800"
-            style={{ height: '40px', marginTop: '2px' }}
-            onClick={() => {
-              setDateFrom(dateFromInput);
-              setDateTo(dateToInput);
-              setFilterTrigger(v => v + 1);
-            }}
-          >
-            Apply
-          </button>
-        </div>
-      </div>
+          {/* Filters Section */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Search */}
+              <div className="lg:col-span-3">
+                <label className="block text-sm font-semibold mb-2 text-gray-700">Search Reward Code</label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Enter reward code..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
+
+              {/* Sort By */}
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">Sort By</label>
+                <select
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
+                  value={filter}
+                  onChange={e => setFilter(e.target.value)}
+                >
+                  <option value="latest">Latest</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="most">Most Claimed</option>
+                  <option value="first">Fastest First Claim</option>
+                  <option value="least">Least Claimed</option>
+                  <option value="pool">Pool Size</option>
+                </select>
+              </div>
+
+              {/* Status Filter */}
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">Status</label>
+                <select
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value)}
+                >
+                  <option value="">All Statuses</option>
+                  <option value="active">Active</option>
+                  <option value="expired">Expired</option>
+                  <option value="depleted">Depleted</option>
+                </select>
+              </div>
+
+              {/* Date Range - Empty third column for alignment */}
+              <div></div>
+
+              {/* Date From */}
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">From Date</label>
+                <input 
+                  type="date" 
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary" 
+                  value={dateFromInput} 
+                  onChange={e => setDateFromInput(e.target.value)} 
+                />
+              </div>
+
+              {/* Date To */}
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">To Date</label>
+                <input 
+                  type="date" 
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary" 
+                  value={dateToInput} 
+                  onChange={e => setDateToInput(e.target.value)} 
+                />
+              </div>
+
+              {/* Apply Button */}
+              <div className="flex items-end">
+                <button
+                  className="w-full px-6 py-2.5 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 transition shadow-sm"
+                  onClick={() => {
+                    setDateFrom(dateFromInput);
+                    setDateTo(dateToInput);
+                    setFilterTrigger(v => v + 1);
+                  }}
+                >
+                  Apply Filters
+                </button>
+              </div>
+            </div>
+          </div>
 
       {/* Analytics Table */}
-      <table className="w-full border border-gray-300 rounded-xl overflow-hidden mb-12 shadow-sm bg-white font-['Montserrat']">
-        <thead>
-          <tr className="bg-gray-100">
-            <th className="text-left px-6 py-3 font-bold text-base">Reward Code</th>
-            <th className="text-left px-6 py-3 font-bold text-base">Pool</th>
-            <th className="text-left px-6 py-3 font-bold text-base">Status</th>
-            <th className="text-left px-6 py-3 font-bold text-base">Created</th>
-            <th className="text-left px-6 py-3 font-bold text-base">Total Claimed</th>
-            <th className="text-left px-6 py-3 font-bold text-base">Claimers</th>
-            <th className="text-left px-6 py-3 font-bold text-base">Time to First Claim</th>
-          </tr>
-        </thead>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-12">
+        <div className="overflow-x-auto">
+          <table className="w-full font-['Montserrat']">
+            <thead>
+              <tr className="bg-gray-100 border-b border-gray-200">
+                <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">Reward Code</th>
+                <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Pool</th>
+                <th className="text-center px-6 py-4 font-bold text-sm text-gray-700">Status</th>
+                <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">Created</th>
+                <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Total Claimed</th>
+                <th className="text-center px-6 py-4 font-bold text-sm text-gray-700">Claimers</th>
+                <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Time to First Claim</th>
+              </tr>
+            </thead>
         <tbody>
           {filteredRewards.map((r, idx) => {
-            const codeClaims = claims.filter(c => c.rewardCode === r.secretCode);
-            const totalClaimed = codeClaims.reduce((sum, c) => sum + (c.claimedAmount || 0), 0);
-            const claimers = Array.from(new Set(codeClaims.map(c => c.userId))).length;
-            const firstClaim = codeClaims.sort((a, b) => new Date(a.claimedAt).getTime() - new Date(b.claimedAt).getTime())[0];
-            const timeToFirst = firstClaim ? (new Date(firstClaim.claimedAt).getTime() - new Date(r.createdAt).getTime()) / 1000 : null;
+            const codeClaims = rewardClaims.filter(claim => claim.secretCode === r.secretCode);
+            const totalClaimed = codeClaims.reduce((sum, claim) => sum + (claim.claimAmount || 0), 0);
+            const claimers = Array.from(new Set(codeClaims.map(claim => claim.userId))).length;
+            const sortedClaims = [...codeClaims].sort((a, b) => {
+              const getTime = (dateValue) => {
+                if (!dateValue) return 0;
+                try {
+                  if (typeof dateValue === 'object' && 
+                      dateValue !== null && 
+                      typeof dateValue.toDate === 'function') {
+                    return dateValue.toDate().getTime();
+                  }
+                  const date = new Date(dateValue);
+                  return isNaN(date.getTime()) ? 0 : date.getTime();
+                } catch (error) {
+                  console.error('Error parsing date value:', error, dateValue);
+                  return 0;
+                }
+              };
+              
+              const aTime = getTime(a.claimedAt);
+              const bTime = getTime(b.claimedAt);
+              return aTime - bTime;
+            });
+            const firstClaim = sortedClaims[0];
+            const timeToFirst = firstClaim && r.createdAt ? 
+              (() => {
+                const getTime = (dateValue) => {
+                  if (!dateValue) return 0;
+                  try {
+                    if (typeof dateValue === 'object' && 
+                        dateValue !== null && 
+                        typeof dateValue.toDate === 'function') {
+                      return dateValue.toDate().getTime();
+                    }
+                    const date = new Date(dateValue);
+                    return isNaN(date.getTime()) ? 0 : date.getTime();
+                  } catch (error) {
+                    console.error('Error parsing date value:', error, dateValue);
+                    return 0;
+                  }
+                };
+                
+                const claimedTime = getTime(firstClaim.claimedAt);
+                const createdTime = new Date(r.createdAt).getTime();
+                return claimedTime && createdTime ? (claimedTime - createdTime) / 1000 : null;
+              })()
+              : null;
             // Auto-expire logic: if expiresAt is in the past, show 'expired' in UI
             const now = Date.now();
             const isExpired = r.expiresAt && new Date(r.expiresAt).getTime() < now;
-            const status = isExpired ? 'expired' : r.status;
+            const status = isExpired ? 'expired' : (r.status || 'unknown');
             return (
               <tr
                 key={r.id || idx}
-                className={`border-b border-gray-200 transition font-['Montserrat'] ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-primary/5`}
+                className={`border-b border-gray-200 transition font-['Montserrat'] hover:bg-gray-50`}
               >
-                <td className="px-6 py-3 align-middle font-semibold text-sm">{r.secretCode}</td>
-                <td className="px-6 py-3 align-middle text-sm">₱{r.pool}</td>
-                <td className="px-6 py-3 align-middle text-sm capitalize">{status}</td>
-                <td className="px-6 py-3 align-middle text-sm">{r.createdAt ? new Date(r.createdAt).toLocaleString() : "-"}</td>
-                <td className="px-6 py-3 align-middle text-sm">₱{totalClaimed}</td>
-                <td className="px-6 py-3 align-middle text-sm">{claimers}</td>
-                <td className="px-6 py-3 align-middle text-sm">{timeToFirst !== null ? `${Math.round(timeToFirst)}s` : '-'}</td>
+                <td className="px-6 py-4 align-middle font-bold text-sm text-gray-900">{r.secretCode}</td>
+                <td className="px-6 py-4 align-middle text-sm text-right text-gray-700">₱{(r.pool || 0).toLocaleString()}</td>
+                <td className="px-6 py-4 align-middle text-center">
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
+                    status === 'active' ? 'bg-green-100 text-green-700' :
+                    status === 'expired' ? 'bg-red-100 text-red-700' :
+                    'bg-gray-100 text-gray-700'
+                  }`}>
+                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                  </span>
+                </td>
+                <td className="px-6 py-4 align-middle text-sm text-gray-600">
+                  {r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric', 
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  }) : "-"}
+                </td>
+                <td className="px-6 py-4 align-middle text-sm text-right font-semibold text-green-600">₱{totalClaimed.toLocaleString()}</td>
+                <td className="px-6 py-4 align-middle text-sm text-center text-gray-700">{claimers}</td>
+                <td className="px-6 py-4 align-middle text-sm text-right text-gray-600">{timeToFirst !== null ? `${Math.round(timeToFirst)}s` : '-'}</td>
               </tr>
             );
           })}
         </tbody>
-      </table>
+          </table>
+        </div>
+        {filteredRewards.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-gray-500">No rewards found matching your filters.</p>
+          </div>
+        )}
+      </div>
 
       {/* Leaderboards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 font-['Montserrat']">
         <div>
-          <h3 className="font-bold text-xl mb-4 text-center">Top Claimers</h3>
-          <table className="w-full border border-gray-300 rounded-xl overflow-hidden bg-white shadow-sm font-['Montserrat']">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="text-left px-6 py-3 font-bold text-base">User</th>
-                <th className="text-left px-6 py-3 font-bold text-base">Total Claimed</th>
-                <th className="text-left px-6 py-3 font-bold text-base">Claims</th>
-              </tr>
-            </thead>
-            <tbody>
+          <h3 className="font-bold text-xl mb-4 text-gray-900">Top Claimers</h3>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full font-['Montserrat']">
+              <thead>
+                <tr className="bg-gray-100 border-b border-gray-200">
+                  <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">User</th>
+                  <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Total Claimed</th>
+                  <th className="text-center px-6 py-4 font-bold text-sm text-gray-700">Claims</th>
+                </tr>
+              </thead>
+              <tbody>
               {topClaimers.map((u, idx) => {
                 const member = members.find(m => m.id === u.userId);
                 return (
-                  <tr key={u.userId} className={`border-b border-gray-200 transition font-['Montserrat'] ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-primary/5`}>
-                    <td className="px-6 py-3 align-middle text-sm">{member ? member.name : u.userId}</td>
-                    <td className="px-6 py-3 align-middle text-sm">₱{u.total}</td>
-                    <td className="px-6 py-3 align-middle text-sm">{u.count}</td>
+                  <tr key={u.userId} className={`border-b border-gray-200 last:border-0 transition font-['Montserrat'] hover:bg-gray-50`}>
+                    <td className="px-6 py-4 align-middle text-sm font-medium text-gray-900">{member ? member.name : u.userId}</td>
+                    <td className="px-6 py-4 align-middle text-sm text-right font-semibold text-green-600">₱{(u.total || 0).toLocaleString()}</td>
+                    <td className="px-6 py-4 align-middle text-sm text-center text-gray-700">{u.count || 0}</td>
                   </tr>
                 );
               })}
             </tbody>
-          </table>
+            </table>
+            {topClaimers.length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-gray-500 text-sm">No claimers yet.</p>
+              </div>
+            )}
+          </div>
         </div>
         <div>
-          <h3 className="font-bold text-xl mb-4 text-center">Fastest Claimers (≥3 claims)</h3>
-          <table className="w-full border border-gray-300 rounded-xl overflow-hidden bg-white shadow-sm font-['Montserrat']">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="text-left px-6 py-3 font-bold text-base">User</th>
-                <th className="text-left px-6 py-3 font-bold text-base">Avg. Time to Claim</th>
-                <th className="text-left px-6 py-3 font-bold text-base">Claims</th>
-              </tr>
-            </thead>
-            <tbody>
+          <h3 className="font-bold text-xl mb-4 text-gray-900">Fastest Claimers (≥3 claims)</h3>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full font-['Montserrat']">
+              <thead>
+                <tr className="bg-gray-100 border-b border-gray-200">
+                  <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">User</th>
+                  <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Avg. Time to Claim</th>
+                  <th className="text-center px-6 py-4 font-bold text-sm text-gray-700">Claims</th>
+                </tr>
+              </thead>
+              <tbody>
               {fastestClaimers.map((u, idx) => {
                 const member = members.find(m => m.id === u.userId);
                 return (
-                  <tr key={u.userId} className={`border-b border-gray-200 transition font-['Montserrat'] ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-primary/5`}>
-                    <td className="px-6 py-3 align-middle text-sm">{member ? member.name : u.userId}</td>
-                    <td className="px-6 py-3 align-middle text-sm">{Math.round(u.avgTime / 1000)}s</td>
-                    <td className="px-6 py-3 align-middle text-sm">{u.count}</td>
+                  <tr key={u.userId} className={`border-b border-gray-200 last:border-0 transition font-['Montserrat'] hover:bg-gray-50`}>
+                    <td className="px-6 py-4 align-middle text-sm font-medium text-gray-900">{member ? member.name : u.userId}</td>
+                    <td className="px-6 py-4 align-middle text-sm text-right font-semibold text-blue-600">{Math.round((u.avgTime || 0) / 1000)}s</td>
+                    <td className="px-6 py-4 align-middle text-sm text-center text-gray-700">{u.count || 0}</td>
                   </tr>
                 );
               })}
             </tbody>
-          </table>
+            </table>
+            {fastestClaimers.length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-gray-500 text-sm">No eligible claimers yet (minimum 3 claims required).</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
         </>
       ) : (
         <>
-          {/* Individual Claims Tab */}
-          <div className="mb-8 flex justify-center">
+          {/* Individual Claims Tab - Search */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
+            <label className="block text-sm font-semibold mb-2 text-gray-700">Search Claims</label>
             <input
               type="text"
-              className="border rounded px-4 py-2 w-96"
-              placeholder="Search by user name, email, code, or user ID"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder="Search by user name, email, reward code, or user ID..."
               value={claimsSearch}
               onChange={e => setClaimsSearch(e.target.value)}
             />
           </div>
 
           {filteredRewardClaims.length === 0 ? (
-            <div className="text-center py-12">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 text-center py-12">
               <p className="text-lg text-gray-600">No reward claims found.</p>
               <p className="text-sm text-gray-500 mt-2">Claims will appear here when users claim rewards.</p>
             </div>
           ) : (
-            <table className="w-full border border-gray-300 rounded-xl overflow-hidden shadow-sm bg-white font-['Montserrat']">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="text-left px-6 py-3 font-bold text-base">User Name</th>
-                <th className="text-left px-6 py-3 font-bold text-base">Email</th>
-                <th className="text-left px-6 py-3 font-bold text-base">Reward Code</th>
-                <th className="text-left px-6 py-3 font-bold text-base">Claim Amount</th>
-                <th className="text-left px-6 py-3 font-bold text-base">Pool Before</th>
-                <th className="text-left px-6 py-3 font-bold text-base">Pool After</th>
-                <th className="text-left px-6 py-3 font-bold text-base">Claimed At</th>
-                <th className="text-left px-6 py-3 font-bold text-base">Time to Claim</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRewardClaims.map((claim, idx) => {
-                const claimedDate = new Date(claim.claimedAt);
-                const timeMinutes = Math.abs(claim.timeToClaimMinutes);
-                const timeDisplay = timeMinutes < 60 
-                  ? `${timeMinutes}m` 
-                  : timeMinutes < 1440 
-                  ? `${Math.floor(timeMinutes / 60)}h ${timeMinutes % 60}m`
-                  : `${Math.floor(timeMinutes / 1440)}d ${Math.floor((timeMinutes % 1440) / 60)}h`;
-                
-                return (
-                  <tr
-                    key={claim.id}
-                    className={`border-b border-gray-200 transition font-['Montserrat'] ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-primary/5`}
-                  >
-                    <td className="px-6 py-3 align-middle text-sm font-semibold">{claim.userName}</td>
-                    <td className="px-6 py-3 align-middle text-sm">{claim.userEmail}</td>
-                    <td className="px-6 py-3 align-middle text-sm font-semibold">{claim.secretCode}</td>
-                    <td className="px-6 py-3 align-middle text-sm font-bold text-green-600">₱{claim.claimAmount.toFixed(2)}</td>
-                    <td className="px-6 py-3 align-middle text-sm">₱{claim.poolBefore.toFixed(2)}</td>
-                    <td className="px-6 py-3 align-middle text-sm">₱{claim.poolAfter.toFixed(2)}</td>
-                    <td className="px-6 py-3 align-middle text-sm">{claimedDate.toLocaleString()}</td>
-                    <td className="px-6 py-3 align-middle text-sm">{timeDisplay}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full font-['Montserrat']">
+                  <thead>
+                    <tr className="bg-gray-100 border-b border-gray-200">
+                      <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">User Name</th>
+                      <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">Email</th>
+                      <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">Reward Code</th>
+                      <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Claim Amount</th>
+                      <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Pool Before</th>
+                      <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Pool After</th>
+                      <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">Claimed At</th>
+                      <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Time to Claim</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                  {filteredRewardClaims.map((claim, idx) => {
+                    // Handle different date formats (ISO string, Firestore Timestamp, etc.)
+                    let claimedDate;
+                    const claimedAtValue = claim.claimedAt;
+                    
+                    if (claimedAtValue != null) {
+                      try {
+                        if (typeof claimedAtValue === 'object' && 
+                            typeof (claimedAtValue as any).toDate === 'function') {
+                          // Firestore Timestamp
+                          claimedDate = (claimedAtValue as any).toDate();
+                        } else {
+                          // String or other format
+                          claimedDate = new Date(claimedAtValue as string);
+                        }
+                      } catch (error) {
+                        console.error('Error parsing claimedAt date:', error, claimedAtValue);
+                        claimedDate = new Date();
+                      }
+                    } else {
+                      claimedDate = new Date();
+                    }
+                    
+                    const timeMinutes = Math.abs(claim.timeToClaimMinutes || 0);
+                    const timeDisplay = timeMinutes < 60 
+                      ? `${timeMinutes}m` 
+                      : timeMinutes < 1440 
+                      ? `${Math.floor(timeMinutes / 60)}h ${timeMinutes % 60}m`
+                      : `${Math.floor(timeMinutes / 1440)}d ${Math.floor((timeMinutes % 1440) / 60)}h`;
+                    
+                    return (
+                      <tr
+                        key={claim.id}
+                        className={`border-b border-gray-200 last:border-0 transition font-['Montserrat'] hover:bg-gray-50`}
+                      >
+                        <td className="px-6 py-4 align-middle text-sm font-semibold text-gray-900">{claim.userName}</td>
+                        <td className="px-6 py-4 align-middle text-sm text-gray-600">{claim.userEmail}</td>
+                        <td className="px-6 py-4 align-middle text-sm font-bold text-gray-900">{claim.secretCode}</td>
+                        <td className="px-6 py-4 align-middle text-sm text-right font-bold text-green-600">₱{(claim.claimAmount || 0).toFixed(2)}</td>
+                        <td className="px-6 py-4 align-middle text-sm text-right text-gray-600">₱{(claim.poolBefore || 0).toFixed(2)}</td>
+                        <td className="px-6 py-4 align-middle text-sm text-right text-gray-600">₱{(claim.poolAfter || 0).toFixed(2)}</td>
+                        <td className="px-6 py-4 align-middle text-sm text-gray-600">
+                          {claimedDate && !isNaN(claimedDate.getTime()) ? 
+                            claimedDate.toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric', 
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            }) : 'Invalid Date'
+                          }
+                        </td>
+                        <td className="px-6 py-4 align-middle text-sm text-right text-gray-600">{timeDisplay}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </>
       )}

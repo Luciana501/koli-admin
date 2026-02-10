@@ -250,7 +250,15 @@ const ManaRewardPanel = () => {
         <div className="mt-8">
           <h4 className="font-bold text-lg mb-4 text-center">Previous Codes</h4>
           <div className="max-h-48 overflow-y-auto border rounded-xl p-4 bg-muted/30">
-            {history.length === 0 ? (
+            {history.filter(item => {
+              // Only show non-active codes
+              const now = new Date();
+              const expires = item.expiresAt ? new Date(item.expiresAt) : null;
+              const isExpired = expires && expires < now;
+              const isDepleted = (typeof item.pool === 'number' && item.pool <= 0) || 
+                                 (typeof item.remainingPool === 'number' && item.remainingPool <= 0);
+              return isExpired || isDepleted || (item.status !== 'active');
+            }).length === 0 ? (
               <span className="text-base text-muted-foreground">No previous codes.</span>
             ) : (
               <table className="w-full max-w-[1200px] text-base">
@@ -264,17 +272,26 @@ const ManaRewardPanel = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {history.map((item, idx) => {
-                    // Compute status if not present
-                    let status = item.status;
+                  {history
+                    .filter(item => {
+                      // Only show non-active codes in history
+                      const now = new Date();
+                      const expires = item.expiresAt ? new Date(item.expiresAt) : null;
+                      const isExpired = expires && expires < now;
+                      const isDepleted = (typeof item.pool === 'number' && item.pool <= 0) || 
+                                         (typeof item.remainingPool === 'number' && item.remainingPool <= 0);
+                      return isExpired || isDepleted || (item.status !== 'active');
+                    })
+                    .map((item, idx) => {
+                    // Compute status
+                    let status = item.status || 'unknown';
                     const now = new Date();
                     const expires = item.expiresAt ? new Date(item.expiresAt) : null;
                     if (expires && expires < now) {
                       status = 'expired';
-                    } else if (typeof item.remainingPool === 'number' && item.remainingPool <= 0) {
-                      status = 'used';
-                    } else {
-                      status = 'active';
+                    } else if ((typeof item.pool === 'number' && item.pool <= 0) || 
+                               (typeof item.remainingPool === 'number' && item.remainingPool <= 0)) {
+                      status = 'depleted';
                     }
                     // Show pool, fallback to totalPool, always show a value (even 0)
                     const poolValue = (item.pool !== undefined && item.pool !== null)
@@ -292,7 +309,8 @@ const ManaRewardPanel = () => {
                           <span className={
                             status === 'active' ? 'text-green-600 font-semibold' :
                             status === 'expired' ? 'text-red-500 font-semibold' :
-                            status === 'used' ? 'text-red-600 font-semibold' : ''
+                            status === 'depleted' ? 'text-red-600 font-semibold' :
+                            'text-gray-500 font-semibold'
                           }>
                             {status.charAt(0).toUpperCase() + status.slice(1)}
                           </span>

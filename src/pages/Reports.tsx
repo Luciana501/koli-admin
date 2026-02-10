@@ -41,7 +41,7 @@ const Reports = () => {
     const loadData = async () => {
       setLoading(true);
       const data = await fetchReportAnalytics(
-        chartType as "users" | "donations" | "assets",
+        chartType as "users" | "donations" | "assets" | "rewards",
         timeRange
       );
       setChartData(data);
@@ -53,13 +53,15 @@ const Reports = () => {
 
   const getChartColor = () => {
     if (chartType === "users") return "#3b82f6";
-    if (chartType === "deposits") return "#10b981";
+    if (chartType === "donations") return "#10b981";
+    if (chartType === "rewards") return "#f59e0b";
     return "#8b5cf6";
   };
 
   const getChartLabel = () => {
     if (chartType === "users") return "Users";
-    if (chartType === "deposits") return "Deposits";
+    if (chartType === "donations") return "Donations";
+    if (chartType === "rewards") return "Rewards";
     return "Total Assets";
   };
 
@@ -112,7 +114,8 @@ const Reports = () => {
   const getChartTypeLabel = () => {
     switch (chartType) {
       case "users": return "User Registrations";
-      case "deposits": return "Total Deposits";
+      case "donations": return "Total Donations";
+      case "rewards": return "Mana Rewards Claimed";
       case "assets": return "Total Assets";
       default: return "User Registrations";
     }
@@ -318,7 +321,8 @@ const Reports = () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="users">User Registrations</SelectItem>
-              <SelectItem value="deposits">Total Deposits</SelectItem>
+              <SelectItem value="donations">Total Donations</SelectItem>
+              <SelectItem value="rewards">Mana Rewards Claimed</SelectItem>
               <SelectItem value="assets">Total Assets</SelectItem>
             </SelectContent>
           </Select>
