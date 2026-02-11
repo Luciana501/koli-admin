@@ -2,7 +2,14 @@ import React, { useState, useEffect } from "react";
 import { Donation } from "@/types/admin";
 import { subscribeToDonations, updateDonationStatus } from "@/services/firestore";
 import { IconCheck, IconX, IconEye, IconDownload } from "@tabler/icons-react";
-import Pagination from "@/components/Pagination";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { useToast } from "@/hooks/use-toast";
 import { ref, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase";
@@ -253,11 +260,33 @@ const Donations = () => {
 
           {totalPages > 1 && (
             <div className="mt-7">
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={setCurrentPage}
-              />
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                    <PaginationItem key={page}>
+                      <PaginationLink
+                        onClick={() => setCurrentPage(page)}
+                        isActive={page === currentPage}
+                        className="cursor-pointer"
+                      >
+                        {page}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext
+                      onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
             </div>
           )}
         </>
@@ -355,11 +384,33 @@ const Donations = () => {
 
             {historyTotalPages > 1 && (
               <div className="mt-7">
-                <Pagination
-                  currentPage={historyPage}
-                  totalPages={historyTotalPages}
-                  onPageChange={setHistoryPage}
-                />
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        onClick={() => setHistoryPage(Math.max(1, historyPage - 1))}
+                        className={historyPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    {Array.from({ length: historyTotalPages }, (_, i) => i + 1).map((page) => (
+                      <PaginationItem key={page}>
+                        <PaginationLink
+                          onClick={() => setHistoryPage(page)}
+                          isActive={page === historyPage}
+                          className="cursor-pointer"
+                        >
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))}
+                    <PaginationItem>
+                      <PaginationNext
+                        onClick={() => setHistoryPage(Math.min(historyTotalPages, historyPage + 1))}
+                        className={historyPage === historyTotalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
               </div>
             )}
           </>

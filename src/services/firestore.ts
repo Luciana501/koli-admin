@@ -1,4 +1,4 @@
-import { collection, getDocs, doc, getDoc, updateDoc, query, where, orderBy, Timestamp, onSnapshot } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, updateDoc, addDoc, deleteDoc, query, where, orderBy, Timestamp, onSnapshot } from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { User, Withdrawal, Donation } from "@/types/admin";
@@ -9,43 +9,152 @@ export interface ReportData {
   amount?: number;
 }
 
+export interface ManaRewardAnalytics {
+  totalRewardsGenerated: number;
+  totalRewardsClaimed: number;
+  totalClaimAmount: number;
+  activeRewards: number;
+  expiredRewards: number;
+  claimRate: number;
+  averageClaimAmount: number;
+  recentRewards: Array<{
+    id: string;
+    code: string;
+    totalPool: number;
+    remainingPool: number;
+    claimCount: number;
+    expiresAt: string;
+    status: string;
+  }>;
+}
+
 // Fetch analytics data for reports
 export const fetchReportAnalytics = async (type: "users" | "donations" | "assets" | "rewards", timeRange: string) => {
   try {
+    // Use UTC dates to match Firestore timestamps
     const now = new Date();
-    let startDate = new Date();
+    const endDate = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      23, 59, 59, 999
+    ));
+    
+    let startDate = new Date(endDate);
 
-    // Calculate start date based on time range
+    // Calculate start date based on time range (in UTC)
     switch (timeRange) {
       case "7days":
-        startDate.setDate(now.getDate() - 7);
+        startDate.setUTCDate(startDate.getUTCDate() - 7);
         break;
       case "1month":
-        startDate.setMonth(now.getMonth() - 1);
+        startDate.setUTCMonth(startDate.getUTCMonth() - 1);
         break;
       case "3months":
-        startDate.setMonth(now.getMonth() - 3);
+        startDate.setUTCMonth(startDate.getUTCMonth() - 3);
         break;
       case "6months":
-        startDate.setMonth(now.getMonth() - 6);
+        startDate.setUTCMonth(startDate.getUTCMonth() - 6);
         break;
       case "1year":
-        startDate.setFullYear(now.getFullYear() - 1);
+        startDate.setUTCFullYear(startDate.getUTCFullYear() - 1);
         break;
       default:
-        startDate.setMonth(now.getMonth() - 3);
+        startDate.setUTCMonth(startDate.getUTCMonth() - 3);
     }
+    
+    startDate.setUTCHours(0, 0, 0, 0); // Start of start date
+    
+    console.log(`\ud83d\udcca Fetching ${type} analytics for ${timeRange}:`)
+    console.log(`  Start: ${startDate.toISOString()} (${startDate.toLocaleDateString()})`)
+    console.log(`  End: ${now.toISOString()} (${now.toLocaleDateString()})`);
+
+    // Helper function to determine optimal aggregation level
+    const getAggregationLevel = (timeRange: string): 'day' | 'week' | 'month' => {
+      switch (timeRange) {
+        case "7days":
+        case "1month":
+          return 'day';
+        case "3months":
+        case "6months":
+          return 'week';
+        case "1year":
+          return 'month';
+        default:
+          return 'week';
+      }
+    };
+
+    // Helper function to aggregate dates (working in UTC)
+    const aggregateDates = (start: Date, end: Date, level: 'day' | 'week' | 'month'): string[] => {
+      const dates: string[] = [];
+      const current = new Date(start);
+      current.setUTCHours(0, 0, 0, 0);
+      
+      if (level === 'day') {
+        while (current <= end) {
+          dates.push(current.toISOString().split('T')[0]);
+          current.setUTCDate(current.getUTCDate() + 1);
+        }
+      } else if (level === 'week') {
+        // Start from the beginning of the week
+        current.setUTCDate(current.getUTCDate() - current.getUTCDay());
+        while (current <= end) {
+          dates.push(current.toISOString().split('T')[0]);
+          current.setUTCDate(current.getUTCDate() + 7);
+        }
+      } else {
+        // Month aggregation
+        current.setUTCDate(1);
+        while (current <= end) {
+          dates.push(current.toISOString().split('T')[0]);
+          current.setUTCMonth(current.getUTCMonth() + 1);
+        }
+      }
+      
+      return dates;
+    };
+
+    // Helper function to get aggregation key (working in UTC)
+    const getAggregationKey = (dateStr: string, level: 'day' | 'week' | 'month'): string => {
+      const date = new Date(dateStr + 'T00:00:00Z');
+      
+      if (level === 'day') {
+        return dateStr;
+      } else if (level === 'week') {
+        const weekStart = new Date(date);
+        weekStart.setUTCDate(date.getUTCDate() - date.getUTCDay());
+        return weekStart.toISOString().split('T')[0];
+      } else {
+        const monthStart = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+        return monthStart.toISOString().split('T')[0];
+      }
+    };
+
+    const aggLevel = getAggregationLevel(timeRange);
+    const allDates = aggregateDates(startDate, endDate, aggLevel);
+    console.log(`  Aggregation: ${aggLevel} | Buckets: ${allDates.length}`);
+
+    // Helper to create date from string reliably
+    const createDateFromString = (dateStr: string): Date => {
+      const [year, month, day] = dateStr.split('-').map(Number);
+      return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+    };
 
     if (type === "users") {
       // Get user registrations over time
       const usersRef = collection(db, "members");
       const snapshot = await getDocs(usersRef);
+      console.log(`👥 Found ${snapshot.size} total users in database`);
       
       const dataMap = new Map<string, number>();
+      let usersInRange = 0;
+      let usersProcessed = 0;
       
       snapshot.docs.forEach((doc) => {
         const data = doc.data();
         let createdAt: Date | null = null;
+        usersProcessed++;
         
         // Handle different date formats
         if (data.createdAt) {
@@ -58,24 +167,43 @@ export const fetchReportAnalytics = async (type: "users" | "donations" | "assets
           }
         }
         
-        if (createdAt && createdAt >= startDate) {
+        if (usersProcessed <= 3) {
+          console.log(`Sample user ${usersProcessed} createdAt:`, createdAt, 'startDate:', startDate, 'inRange:', createdAt && createdAt >= startDate);
+        }
+        
+        if (createdAt && createdAt >= startDate && createdAt <= endDate) {
+          usersInRange++;
           const dateKey = createdAt.toISOString().split('T')[0];
-          dataMap.set(dateKey, (dataMap.get(dateKey) || 0) + 1);
+          const aggKey = getAggregationKey(dateKey, aggLevel);
+          dataMap.set(aggKey, (dataMap.get(aggKey) || 0) + 1);
         }
       });
+      
+      console.log(`✅ Processed ${usersProcessed} users, ${usersInRange} in date range`);
+      console.log(`📊 Date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+      console.log(`📊 DataMap has ${dataMap.size} entries`);
+      if (dataMap.size > 0) {
+        const entries = Array.from(dataMap.entries()).slice(0, 3);
+        console.log(`📊 First 3 entries:`, entries);
+      }
 
+      // Build result with aggregated date range
       const result: ReportData[] = [];
-      const sortedDates = Array.from(dataMap.keys()).sort();
       let cumulativeCount = 0;
       
-      sortedDates.forEach((dateKey) => {
-        cumulativeCount += dataMap.get(dateKey) || 0;
+      allDates.forEach((dateKey) => {
+        const incrementValue = dataMap.get(dateKey) || 0;
+        cumulativeCount += incrementValue;
         result.push({
-          date: new Date(dateKey),
+          date: createDateFromString(dateKey),
           count: cumulativeCount,
         });
       });
 
+      console.log(`✅ Returning ${result.length} data points for users`);
+      console.log(`📊 DataMap entries (first 5):`, Array.from(dataMap.entries()).slice(0, 5));
+      console.log(`📊 First 3 results:`, result.slice(0, 3).map(r => ({ date: r.date.toISOString(), count: r.count, isValidDate: !isNaN(r.date.getTime()) })));
+      console.log(`📊 Last 3 results:`, result.slice(-3).map(r => ({ date: r.date.toISOString(), count: r.count, isValidDate: !isNaN(r.date.getTime()) })));
       return result;
     } else if (type === "donations") {
       // Get total donations over time
@@ -101,20 +229,21 @@ export const fetchReportAnalytics = async (type: "users" | "donations" | "assets
         
         const donationAmount = data.donationAmount || 0;
         
-        if (createdAt && createdAt >= startDate) {
+        if (createdAt && createdAt >= startDate && createdAt <= now) {
           const dateKey = createdAt.toISOString().split('T')[0];
-          dataMap.set(dateKey, (dataMap.get(dateKey) || 0) + donationAmount);
+          const aggKey = getAggregationKey(dateKey, aggLevel);
+          dataMap.set(aggKey, (dataMap.get(aggKey) || 0) + donationAmount);
         }
       });
 
+      // Build result with aggregated date range
       const result: ReportData[] = [];
-      const sortedDates = Array.from(dataMap.keys()).sort();
       let cumulativeAmount = 0;
       
-      sortedDates.forEach((dateKey) => {
+      allDates.forEach((dateKey) => {
         cumulativeAmount += dataMap.get(dateKey) || 0;
         result.push({
-          date: new Date(dateKey),
+          date: createDateFromString(dateKey),
           amount: cumulativeAmount,
         });
       });
@@ -144,20 +273,21 @@ export const fetchReportAnalytics = async (type: "users" | "donations" | "assets
         
         const totalAsset = data.totalAsset || 0;
         
-        if (createdAt && createdAt >= startDate) {
+        if (createdAt && createdAt >= startDate && createdAt <= now) {
           const dateKey = createdAt.toISOString().split('T')[0];
-          dataMap.set(dateKey, (dataMap.get(dateKey) || 0) + totalAsset);
+          const aggKey = getAggregationKey(dateKey, aggLevel);
+          dataMap.set(aggKey, (dataMap.get(aggKey) || 0) + totalAsset);
         }
       });
 
+      // Build result with aggregated date range
       const result: ReportData[] = [];
-      const sortedDates = Array.from(dataMap.keys()).sort();
       let cumulativeAmount = 0;
       
-      sortedDates.forEach((dateKey) => {
+      allDates.forEach((dateKey) => {
         cumulativeAmount += dataMap.get(dateKey) || 0;
         result.push({
-          date: new Date(dateKey),
+          date: createDateFromString(dateKey),
           amount: cumulativeAmount,
         });
       });
@@ -187,20 +317,21 @@ export const fetchReportAnalytics = async (type: "users" | "donations" | "assets
         
         const claimAmount = data.claimAmount || 0;
         
-        if (claimedAt && claimedAt >= startDate) {
+        if (claimedAt && claimedAt >= startDate && claimedAt <= now) {
           const dateKey = claimedAt.toISOString().split('T')[0];
-          dataMap.set(dateKey, (dataMap.get(dateKey) || 0) + claimAmount);
+          const aggKey = getAggregationKey(dateKey, aggLevel);
+          dataMap.set(aggKey, (dataMap.get(aggKey) || 0) + claimAmount);
         }
       });
 
+      // Build result with aggregated date range
       const result: ReportData[] = [];
-      const sortedDates = Array.from(dataMap.keys()).sort();
       let cumulativeAmount = 0;
       
-      sortedDates.forEach((dateKey) => {
+      allDates.forEach((dateKey) => {
         cumulativeAmount += dataMap.get(dateKey) || 0;
         result.push({
-          date: new Date(dateKey),
+          date: createDateFromString(dateKey),
           amount: cumulativeAmount,
         });
       });
@@ -230,6 +361,11 @@ export const subscribeToUsers = (callback: (users: User[]) => void) => {
         donationAmount: data.donationAmount || 0,
         totalAsset: data.totalAsset || 0,
         createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        kycStatus: data.kycStatus || "NOT_SUBMITTED",
+        kycSubmittedAt: data.kycSubmittedAt || undefined,
+        kycManualData: data.kycManualData || undefined,
+        kycImageUrl: data.kycImageUrl || undefined,
+        name: data.name || undefined,
       };
     });
     callback(users);
@@ -342,18 +478,6 @@ export const fetchUserById = async (userId: string): Promise<User | null> => {
   } catch (error) {
     console.error("Error fetching user:", error);
     return null;
-  }
-};
-
-// Update user information
-export const updateUser = async (userId: string, updates: Partial<User>): Promise<boolean> => {
-  try {
-    const userRef = doc(db, "members", userId);
-    await updateDoc(userRef, updates as any);
-    return true;
-  } catch (error) {
-    console.error("Error updating user:", error);
-    return false;
   }
 };
 
@@ -672,5 +796,168 @@ export const updateKYCStatus = async (
   } catch (error) {
     console.error("Error updating KYC status:", error);
     throw error;
+  }
+};
+
+// Create new user
+export const createUser = async (
+  userData: Omit<User, "id" | "createdAt">
+): Promise<string> => {
+  try {
+    const membersRef = collection(db, "members");
+    const docRef = await addDoc(membersRef, {
+      ...userData,
+      createdAt: new Date().toISOString(),
+      kycStatus: userData.kycStatus || "NOT_SUBMITTED",
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error("Error creating user:", error);
+    throw error;
+  }
+};
+
+// Update user
+export const updateUser = async (
+  userId: string,
+  userData: Partial<Omit<User, "id" | "createdAt">>
+): Promise<void> => {
+  try {
+    const userRef = doc(db, "members", userId);
+    await updateDoc(userRef, {
+      ...userData,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error updating user:", error);
+    throw error;
+  }
+};
+
+// Delete user
+export const deleteUser = async (userId: string): Promise<void> => {
+  try {
+    const userRef = doc(db, "members", userId);
+    await deleteDoc(userRef);
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    throw error;
+  }
+};
+
+// Fetch Mana Reward Analytics for Reports
+export const fetchManaRewardAnalytics = async (): Promise<ManaRewardAnalytics> => {
+  try {
+    // Fetch rewards history - this contains all generated reward codes
+    const rewardsRef = collection(db, "rewardsHistory");
+    const rewardsSnapshot = await getDocs(rewardsRef);
+    
+    console.log("📊 Fetching MANA Reward Analytics...");
+    console.log(`Found ${rewardsSnapshot.size} reward codes in rewardsHistory collection`);
+    
+    // Fetch reward claims
+    const claimsRef = collection(db, "rewardClaims");
+    const claimsSnapshot = await getDocs(claimsRef);
+    
+    console.log(`Found ${claimsSnapshot.size} claim documents in rewardClaims collection`);
+    
+    const now = new Date();
+    let totalRewardsGenerated = rewardsSnapshot.size;
+    let activeRewards = 0;
+    let expiredRewards = 0;
+    let totalClaimAmount = 0;
+    let totalRewardsClaimed = claimsSnapshot.size;
+    
+    const recentRewards: Array<{
+      id: string;
+      code: string;
+      totalPool: number;
+      remainingPool: number;
+      claimCount: number;
+      expiresAt: string;
+      status: string;
+    }> = [];
+    
+    // Process rewards
+    rewardsSnapshot.docs.forEach((doc) => {
+      const data = doc.data();
+      let expiresAt: Date | null = null;
+      
+      if (data.expiresAt) {
+        if (typeof data.expiresAt.toDate === 'function') {
+          expiresAt = data.expiresAt.toDate();
+        } else if (data.expiresAt instanceof Date) {
+          expiresAt = data.expiresAt;
+        } else if (typeof data.expiresAt === 'string') {
+          expiresAt = new Date(data.expiresAt);
+        }
+      }
+      
+      const isExpired = expiresAt ? expiresAt < now : false;
+      
+      if (isExpired) {
+        expiredRewards++;
+      } else {
+        activeRewards++;
+      }
+      
+      // Add to recent rewards (top 5)
+      if (recentRewards.length < 5) {
+        recentRewards.push({
+          id: doc.id,
+          code: data.code || "",
+          totalPool: data.totalPool || 0,
+          remainingPool: data.remainingPool || 0,
+          claimCount: data.claimCount || 0,
+          expiresAt: expiresAt?.toISOString() || "",
+          status: isExpired ? "Expired" : "Active",
+        });
+      }
+    });
+    
+    // Calculate total claim amount
+    claimsSnapshot.docs.forEach((doc) => {
+      const data = doc.data();
+      totalClaimAmount += data.claimAmount || 0;
+    });
+    
+    const claimRate = totalRewardsGenerated > 0 
+      ? (totalRewardsClaimed / totalRewardsGenerated) * 100 
+      : 0;
+    
+    const averageClaimAmount = totalRewardsClaimed > 0 
+      ? totalClaimAmount / totalRewardsClaimed 
+      : 0;
+    
+    console.log("✅ MANA Reward Analytics Summary:");
+    console.log(`- Total Rewards Generated: ${totalRewardsGenerated}`);
+    console.log(`- Active Rewards: ${activeRewards}`);
+    console.log(`- Expired Rewards: ${expiredRewards}`);
+    console.log(`- Total Claims: ${totalRewardsClaimed}`);
+    console.log(`- Total Claim Amount: ${totalClaimAmount}`);
+    console.log(`- Claim Rate: ${claimRate.toFixed(1)}%`);
+    
+    return {
+      totalRewardsGenerated,
+      totalRewardsClaimed,
+      totalClaimAmount,
+      activeRewards,
+      expiredRewards,
+      claimRate,
+      averageClaimAmount,
+      recentRewards,
+    };
+  } catch (error) {
+    console.error("❌ Error fetching Mana Reward analytics:", error);
+    return {
+      totalRewardsGenerated: 0,
+      totalRewardsClaimed: 0,
+      totalClaimAmount: 0,
+      activeRewards: 0,
+      expiredRewards: 0,
+      claimRate: 0,
+      averageClaimAmount: 0,
+      recentRewards: [],
+    };
   }
 };

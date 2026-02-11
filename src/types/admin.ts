@@ -10,7 +10,7 @@ export interface User {
   donationAmount: number;
   totalAsset: number;
   createdAt: string;
-  kycStatus?: "PENDING" | "APPROVED" | "REJECTED";
+  kycStatus?: "PENDING" | "APPROVED" | "REJECTED" | "NOT_SUBMITTED";
   kycSubmittedAt?: string;
   kycManualData?: {
     address?: string;

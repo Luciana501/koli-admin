@@ -2,8 +2,15 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Withdrawal } from "@/types/admin";
 import { subscribeToWithdrawals, updateWithdrawalStatus } from "@/services/firestore";
 import { useAuth } from "@/context/AuthContext";
-import { IconSend, IconCheck, IconEye, IconX } from "@tabler/icons-react";
-import Pagination from "@/components/Pagination";
+import { IconSend, IconCheck, IconEye, IconX, IconFilter, IconSearch } from "@tabler/icons-react";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -14,6 +21,14 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 
 interface GroupedWithdrawal {
   id: string;
@@ -45,6 +60,19 @@ const Withdrawals = () => {
   const [returnNote, setReturnNote] = useState("");
   const [returnGroup, setReturnGroup] = useState<GroupedWithdrawal | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Filter states
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [amountFilter, setAmountFilter] = useState("all");
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
+  const [withdrawalTypeFilter, setWithdrawalTypeFilter] = useState("all");
+  const [dateFromFilter, setDateFromFilter] = useState("");
+  const [dateToFilter, setDateToFilter] = useState("");
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+  
   const { adminType } = useAuth();
   const { toast } = useToast();
   const itemsPerPage = 5;
@@ -60,7 +88,7 @@ const Withdrawals = () => {
     return () => unsubscribe();
   }, []);
 
-  // Group withdrawals by userId + requestedAt
+  // Group withdrawals by userId + requestedAt with filtering
   const groupedWithdrawals = useMemo(() => {
     let filtered: Withdrawal[] = [];
     if (adminType === "finance") {
@@ -68,6 +96,63 @@ const Withdrawals = () => {
     } else {
       filtered = withdrawals.filter((w) => w.status === "pending");
     }
+    
+    // Apply additional filters
+    filtered = filtered.filter((withdrawal) => {
+      // Search filter
+      const matchesSearch = !searchTerm ||
+        withdrawal.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        withdrawal.userEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        withdrawal.userPhone.includes(searchTerm);
+      
+      // Status filter (for flexibility in future)
+      const matchesStatus = !statusFilter || statusFilter === "all" || withdrawal.status === statusFilter;
+      
+      // Amount filter
+      let matchesAmount = true;
+      if (amountFilter && amountFilter !== "all") {
+        switch (amountFilter) {
+          case "low":
+            matchesAmount = withdrawal.amount < 10000;
+            break;
+          case "medium":
+            matchesAmount = withdrawal.amount >= 10000 && withdrawal.amount < 50000;
+            break;
+          case "high":
+            matchesAmount = withdrawal.amount >= 50000;
+            break;
+        }
+      }
+      
+      // Custom amount range
+      if (minAmount && withdrawal.amount < parseFloat(minAmount)) matchesAmount = false;
+      if (maxAmount && withdrawal.amount > parseFloat(maxAmount)) matchesAmount = false;
+      
+      // Payment method filter
+      const matchesPaymentMethod = !paymentMethodFilter || 
+        withdrawal.paymentMethod.toLowerCase().includes(paymentMethodFilter.toLowerCase());
+      
+      // Withdrawal type filter
+      const matchesType = !withdrawalTypeFilter || 
+        (withdrawalTypeFilter === "pooled" && withdrawal.isPooled) ||
+        (withdrawalTypeFilter === "regular" && !withdrawal.isPooled);
+      
+      // Date range filter
+      let matchesDate = true;
+      if (dateFromFilter) {
+        const withdrawalDate = new Date(withdrawal.requestedAt);
+        const fromDate = new Date(dateFromFilter);
+        matchesDate = withdrawalDate >= fromDate;
+      }
+      if (dateToFilter && matchesDate) {
+        const withdrawalDate = new Date(withdrawal.requestedAt);
+        const toDate = new Date(dateToFilter + "T23:59:59"); // Include full day
+        matchesDate = withdrawalDate <= toDate;
+      }
+      
+      return matchesSearch && matchesStatus && matchesAmount && matchesPaymentMethod && matchesType && matchesDate;
+    });
+    
     const groups = new Map<string, GroupedWithdrawal>();
     filtered.forEach((withdrawal) => {
       const key = `${withdrawal.userId}_${withdrawal.requestedAt}`;
@@ -91,11 +176,65 @@ const Withdrawals = () => {
       }
     });
     return Array.from(groups.values());
-  }, [withdrawals, adminType]);
+  }, [withdrawals, adminType, searchTerm, statusFilter, amountFilter, paymentMethodFilter, withdrawalTypeFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
-  // Group history withdrawals (approved)
+  // Group history withdrawals (approved) with filtering
   const groupedHistory = useMemo(() => {
-    const history = withdrawals.filter((w) => w.status === "approved" || w.status === "sent");
+    let history = withdrawals.filter((w) => w.status === "approved" || w.status === "sent");
+    
+    // Apply the same filters as pending withdrawals
+    history = history.filter((withdrawal) => {
+      // Search filter
+      const matchesSearch = !searchTerm ||
+        withdrawal.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        withdrawal.userEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        withdrawal.userPhone.includes(searchTerm);
+      
+      // Amount filter
+      let matchesAmount = true;
+      if (amountFilter && amountFilter !== "all") {
+        switch (amountFilter) {
+          case "low":
+            matchesAmount = withdrawal.amount < 10000;
+            break;
+          case "medium":
+            matchesAmount = withdrawal.amount >= 10000 && withdrawal.amount < 50000;
+            break;
+          case "high":
+            matchesAmount = withdrawal.amount >= 50000;
+            break;
+        }
+      }
+      
+      // Custom amount range
+      if (minAmount && withdrawal.amount < parseFloat(minAmount)) matchesAmount = false;
+      if (maxAmount && withdrawal.amount > parseFloat(maxAmount)) matchesAmount = false;
+      
+      // Payment method filter
+      const matchesPaymentMethod = !paymentMethodFilter || paymentMethodFilter === "all" || 
+        withdrawal.paymentMethod.toLowerCase().includes(paymentMethodFilter.toLowerCase());
+      
+      // Withdrawal type filter
+      const matchesType = !withdrawalTypeFilter || withdrawalTypeFilter === "all" || 
+        (withdrawalTypeFilter === "pooled" && withdrawal.isPooled) ||
+        (withdrawalTypeFilter === "regular" && !withdrawal.isPooled);
+      
+      // Date range filter
+      let matchesDate = true;
+      if (dateFromFilter) {
+        const withdrawalDate = new Date(withdrawal.requestedAt);
+        const fromDate = new Date(dateFromFilter);
+        matchesDate = withdrawalDate >= fromDate;
+      }
+      if (dateToFilter && matchesDate) {
+        const withdrawalDate = new Date(withdrawal.requestedAt);
+        const toDate = new Date(dateToFilter + "T23:59:59");
+        matchesDate = withdrawalDate <= toDate;
+      }
+      
+      return matchesSearch && matchesAmount && matchesPaymentMethod && matchesType && matchesDate;
+    });
+    
     const groups = new Map<string, GroupedWithdrawal>();
 
     history.forEach((withdrawal) => {
@@ -122,11 +261,65 @@ const Withdrawals = () => {
     });
 
     return Array.from(groups.values());
-  }, [withdrawals]);
+  }, [withdrawals, searchTerm, amountFilter, paymentMethodFilter, withdrawalTypeFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
-  // Group returns (rejected by finance, for main admin only)
+  // Group returns (rejected by finance, for main admin only) with filtering
   const groupedReturns = useMemo(() => {
-    const returns = withdrawals.filter((w) => w.status === "rejected");
+    let returns = withdrawals.filter((w) => w.status === "rejected");
+    
+    // Apply the same filters as other tabs
+    returns = returns.filter((withdrawal) => {
+      // Search filter
+      const matchesSearch = !searchTerm ||
+        withdrawal.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        withdrawal.userEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        withdrawal.userPhone.includes(searchTerm);
+      
+      // Amount filter
+      let matchesAmount = true;
+      if (amountFilter && amountFilter !== "all") {
+        switch (amountFilter) {
+          case "low":
+            matchesAmount = withdrawal.amount < 10000;
+            break;
+          case "medium":
+            matchesAmount = withdrawal.amount >= 10000 && withdrawal.amount < 50000;
+            break;
+          case "high":
+            matchesAmount = withdrawal.amount >= 50000;
+            break;
+        }
+      }
+      
+      // Custom amount range
+      if (minAmount && withdrawal.amount < parseFloat(minAmount)) matchesAmount = false;
+      if (maxAmount && withdrawal.amount > parseFloat(maxAmount)) matchesAmount = false;
+      
+      // Payment method filter
+      const matchesPaymentMethod = !paymentMethodFilter || paymentMethodFilter === "all" || 
+        withdrawal.paymentMethod.toLowerCase().includes(paymentMethodFilter.toLowerCase());
+      
+      // Withdrawal type filter
+      const matchesType = !withdrawalTypeFilter || withdrawalTypeFilter === "all" || 
+        (withdrawalTypeFilter === "pooled" && withdrawal.isPooled) ||
+        (withdrawalTypeFilter === "regular" && !withdrawal.isPooled);
+      
+      // Date range filter
+      let matchesDate = true;
+      if (dateFromFilter) {
+        const withdrawalDate = new Date(withdrawal.requestedAt);
+        const fromDate = new Date(dateFromFilter);
+        matchesDate = withdrawalDate >= fromDate;
+      }
+      if (dateToFilter && matchesDate) {
+        const withdrawalDate = new Date(withdrawal.requestedAt);
+        const toDate = new Date(dateToFilter + "T23:59:59");
+        matchesDate = withdrawalDate <= toDate;
+      }
+      
+      return matchesSearch && matchesAmount && matchesPaymentMethod && matchesType && matchesDate;
+    });
+    
     const groups = new Map<string, GroupedWithdrawal>();
 
     returns.forEach((withdrawal) => {
@@ -153,7 +346,7 @@ const Withdrawals = () => {
     });
 
     return Array.from(groups.values());
-  }, [withdrawals]);
+  }, [withdrawals, searchTerm, amountFilter, paymentMethodFilter, withdrawalTypeFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
   const totalPages = Math.ceil(groupedWithdrawals.length / itemsPerPage);
   const historyTotalPages = Math.ceil(groupedHistory.length / itemsPerPage);
@@ -374,6 +567,23 @@ const Withdrawals = () => {
       description: `${groupedWithdrawals.length} withdrawal(s) sent to finance team for approval.`,
     });
   };
+  
+  const clearFilters = () => {
+    setSearchTerm("");
+    setStatusFilter("all");
+    setAmountFilter("all");
+    setPaymentMethodFilter("all");
+    setWithdrawalTypeFilter("all");
+    setDateFromFilter("");
+    setDateToFilter("");
+    setMinAmount("");
+    setMaxAmount("");
+    setCurrentPage(1);
+    setHistoryPage(1);
+    setReturnsPage(1);
+  };
+  
+  const hasActiveFilters = searchTerm || (statusFilter !== "all") || (amountFilter !== "all") || (paymentMethodFilter !== "all") || (withdrawalTypeFilter !== "all") || dateFromFilter || dateToFilter || minAmount || maxAmount;
 
   const isFinanceAdmin = adminType === "finance";
 
@@ -407,6 +617,148 @@ const Withdrawals = () => {
             <span className="hidden sm:inline">Approve Selected ({selectedGroupIds.length})</span>
             <span className="sm:hidden">Approve ({selectedGroupIds.length})</span>
           </button>
+        )}
+      </div>
+      
+      {/* Search and Filters */}
+      <div className="mb-6">
+        <div className="flex flex-col sm:flex-row gap-3 mb-4">
+          <div className="relative flex-1 sm:max-w-md">
+            <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+                setHistoryPage(1);
+                setReturnsPage(1);
+              }}
+              placeholder="Search by user name, email, or phone..."
+              className="w-full pl-10 pr-4 py-2 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2 whitespace-nowrap"
+            >
+              <IconFilter className="h-4 w-4" />
+              Filters
+              {hasActiveFilters && (
+                <div className="w-2 h-2 bg-primary rounded-full" />
+              )}
+            </Button>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <IconX className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+        
+        {/* Advanced Filters */}
+        {showFilters && (
+          <div className="bg-card border border-border rounded-lg p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {/* Amount Range */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Amount Range</label>
+                <Select value={amountFilter} onValueChange={setAmountFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Select range" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Amounts</SelectItem>
+                    <SelectItem value="low">Low (&lt; ₱10K)</SelectItem>
+                    <SelectItem value="medium">Medium (₱10K - ₱50K)</SelectItem>
+                    <SelectItem value="high">High (₱50K+)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* Payment Method */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Payment Method</label>
+                <Select value={paymentMethodFilter} onValueChange={setPaymentMethodFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Select method" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Methods</SelectItem>
+                    <SelectItem value="gcash">GCash</SelectItem>
+                    <SelectItem value="bank">Bank Transfer</SelectItem>
+                    <SelectItem value="paypal">PayPal</SelectItem>
+                    <SelectItem value="maya">Maya</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* Withdrawal Type */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Withdrawal Type</label>
+                <Select value={withdrawalTypeFilter} onValueChange={setWithdrawalTypeFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="regular">Regular</SelectItem>
+                    <SelectItem value="pooled">Pooled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* Date Range */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Date Range</label>
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    value={dateFromFilter}
+                    onChange={(e) => setDateFromFilter(e.target.value)}
+                    className="h-9 text-xs"
+                    placeholder="From"
+                  />
+                  <Input
+                    type="date"
+                    value={dateToFilter}
+                    onChange={(e) => setDateToFilter(e.target.value)}
+                    className="h-9 text-xs"
+                    placeholder="To"
+                  />
+                </div>
+              </div>
+              
+              {/* Custom Amount Range */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Custom Amount</label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min ₱"
+                    value={minAmount}
+                    onChange={(e) => setMinAmount(e.target.value)}
+                    className="h-9 text-xs"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max ₱"
+                    value={maxAmount}
+                    onChange={(e) => setMaxAmount(e.target.value)}
+                    className="h-9 text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4 text-sm text-muted-foreground">
+              Showing {groupedWithdrawals.length} withdrawal groups
+              {hasActiveFilters && " (filtered)"}
+            </div>
+          </div>
         )}
       </div>
 
@@ -598,11 +950,33 @@ const Withdrawals = () => {
               </button>
             )}
             <div className="md:ml-auto">
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={setCurrentPage}
-              />
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                    <PaginationItem key={page}>
+                      <PaginationLink
+                        onClick={() => setCurrentPage(page)}
+                        isActive={page === currentPage}
+                        className="cursor-pointer"
+                      >
+                        {page}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext
+                      onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
             </div>
           </div>
         )}
@@ -720,11 +1094,33 @@ const Withdrawals = () => {
 
         {groupedHistory.length > 0 && (
           <div className="p-4 border-t border-border flex justify-end">
-            <Pagination
-              currentPage={historyPage}
-              totalPages={historyTotalPages}
-              onPageChange={setHistoryPage}
-            />
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setHistoryPage(Math.max(1, historyPage - 1))}
+                    className={historyPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                {Array.from({ length: historyTotalPages }, (_, i) => i + 1).map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setHistoryPage(page)}
+                      isActive={page === historyPage}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => setHistoryPage(Math.min(historyTotalPages, historyPage + 1))}
+                    className={historyPage === historyTotalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
           </div>
         )}
 
@@ -817,11 +1213,33 @@ const Withdrawals = () => {
 
         {groupedReturns.length > 0 && (
           <div className="p-4 border-t border-border flex justify-end">
-            <Pagination
-              currentPage={returnsPage}
-              totalPages={returnsTotalPages}
-              onPageChange={setReturnsPage}
-            />
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setReturnsPage(Math.max(1, returnsPage - 1))}
+                    className={returnsPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                {Array.from({ length: returnsTotalPages }, (_, i) => i + 1).map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setReturnsPage(page)}
+                      isActive={page === returnsPage}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => setReturnsPage(Math.min(returnsTotalPages, returnsPage + 1))}
+                    className={returnsPage === returnsTotalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
           </div>
         )}
 

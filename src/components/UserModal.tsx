@@ -159,6 +159,13 @@ const UserModal: React.FC<UserModalProps> = ({
             <label className="text-sm font-medium text-muted-foreground">User ID</label>
             <p className="text-base font-medium font-mono text-sm">{user.id}</p>
           </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-muted-foreground">KYC Status</label>
+            <p className="text-base font-medium">
+              {user.kycStatus === "APPROVED" ? "Approved" : user.kycStatus === "PENDING" ? "Pending" : user.kycStatus === "REJECTED" ? "Rejected" : "Not Submitted"}
+            </p>
+          </div>
         </div>
 
         <div className="flex justify-end gap-3 p-6 border-t border-border">

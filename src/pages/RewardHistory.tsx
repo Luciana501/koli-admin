@@ -3,13 +3,23 @@ import { collection, getDocs, query, where, orderBy, onSnapshot } from "firebase
 import { db } from "@/lib/firebase";
 import AdminLayout from "../components/AdminLayout";
 import { RewardClaim } from "@/types/admin";
-import { IconGift, IconHistory } from "@tabler/icons-react";
+import { IconGift, IconHistory, IconFilter, IconSearch } from "@tabler/icons-react";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import { Button } from "@/components/ui/button";
 
 interface RewardHistoryItem {
   id?: string;
   createdAt: string;
   expiresAt: string;
   pool?: number;
+  remainingPool?: number;
   secretCode: string;
   status: string;
   type: string;
@@ -43,6 +53,10 @@ const RewardHistory: React.FC = () => {
   const [dateTo, setDateTo] = React.useState<string>("");
   const [filterTrigger, setFilterTrigger] = React.useState(0);
   const [claimsSearch, setClaimsSearch] = React.useState("");
+  const [analyticsCurrentPage, setAnalyticsCurrentPage] = React.useState(1);
+  const [claimsCurrentPage, setClaimsCurrentPage] = React.useState(1);
+  const itemsPerPage = 10;
+  const [showFilters, setShowFilters] = React.useState(false);
 
   React.useEffect(() => {
     const fetchRewards = async () => {
@@ -195,7 +209,20 @@ const filteredRewards = React.useMemo(() => {
   const fromTime = dateFrom ? getManilaTimestamp(dateFrom, false) : null;
   const toTime = dateTo ? getManilaTimestamp(dateTo, true) : null;
 
-  let result = rewards.filter(r => {
+  let result = rewards.map(r => {
+    const now = Date.now();
+    const expiresTime = r.expiresAt ? new Date(r.expiresAt).getTime() : null;
+    const isExpired = expiresTime && expiresTime < now;
+    const isDepleted = (typeof r.pool === 'number' && r.pool <= 0) ||
+                       (typeof r.remainingPool === 'number' && r.remainingPool <= 0);
+    let status = r.status || 'unknown';
+    if (isExpired) {
+      status = 'expired';
+    } else if (isDepleted) {
+      status = 'depleted';
+    }
+    return { ...r, computedStatus: status };
+  }).filter(r => {
     // Parse createdAt as ISO string or timestamp
     const createdTime = Date.parse(r.createdAt);
 
@@ -204,7 +231,7 @@ const filteredRewards = React.useMemo(() => {
       r.userId?.toLowerCase().includes(search.toLowerCase()) ||
       r.secretCode?.toLowerCase().includes(search.toLowerCase());
 
-    const matchesStatus = statusFilter ? r.status === statusFilter : true;
+    const matchesStatus = statusFilter ? r.computedStatus === statusFilter : true;
 
     const matchesDateFrom = fromTime !== null ? createdTime >= fromTime : true;
     const matchesDateTo = toTime !== null ? createdTime <= toTime : true;
@@ -279,6 +306,14 @@ const filteredRewards = React.useMemo(() => {
   return result;
 }, [rewards, rewardClaims, search, filter, statusFilter, dateFrom, dateTo, filterTrigger]);
 
+  // Paginate analytics
+  const paginatedRewards = React.useMemo(() => {
+    const startIndex = (analyticsCurrentPage - 1) * itemsPerPage;
+    return filteredRewards.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredRewards, analyticsCurrentPage]);
+
+  const analyticsTotalPages = Math.ceil(filteredRewards.length / itemsPerPage);
+
   // Filter reward claims
   const filteredRewardClaims = React.useMemo(() => {
     return rewardClaims.filter(claim => {
@@ -290,6 +325,23 @@ const filteredRewards = React.useMemo(() => {
       return matchesSearch;
     });
   }, [rewardClaims, claimsSearch]);
+
+  // Paginate claims
+  const paginatedClaims = React.useMemo(() => {
+    const startIndex = (claimsCurrentPage - 1) * itemsPerPage;
+    return filteredRewardClaims.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredRewardClaims, claimsCurrentPage]);
+
+  const claimsTotalPages = Math.ceil(filteredRewardClaims.length / itemsPerPage);
+
+  // Reset pagination when filters change
+  React.useEffect(() => {
+    setAnalyticsCurrentPage(1);
+  }, [search, filter, statusFilter, dateFrom, dateTo]);
+
+  React.useEffect(() => {
+    setClaimsCurrentPage(1);
+  }, [claimsSearch]);
 
   // Leaderboards - use rewardClaims
   const userClaimStats: Record<string, { total: number; count: number; times: number[] }> = {};
@@ -342,24 +394,29 @@ const filteredRewards = React.useMemo(() => {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto p-8 font-['Montserrat'] bg-gray-50 min-h-screen flex items-center justify-center">
-        <p className="text-lg text-gray-600">Loading reward claims...</p>
+      <div className="p-4 md:p-6 lg:p-8 flex items-center justify-center h-64">
+        <p className="text-lg text-muted-foreground">Loading reward claims...</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-8 font-['Montserrat'] bg-gray-50 min-h-screen" style={{ fontFamily: 'Montserrat, sans-serif' }}>
-      <h2 className="text-3xl font-extrabold mb-8 text-center tracking-tight">Reward History</h2>
+    <div className="p-4 md:p-6 lg:p-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 md:mb-6">
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold">Reward History</h1>
+          <p className="text-sm md:text-base text-muted-foreground mt-1">Track and analyze reward distribution</p>
+        </div>
+      </div>
       
       {/* Tab Navigation */}
-      <div className="flex justify-center gap-4 mb-8">
+      <div className="flex gap-4 mb-6">
         <button
           onClick={() => setActiveTab("analytics")}
           className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition ${
             activeTab === "analytics"
-              ? "bg-black text-white"
-              : "bg-white text-gray-700 hover:bg-gray-100"
+              ? "bg-primary text-primary-foreground"
+              : "bg-card text-foreground hover:bg-muted border border-border"
           }`}
         >
           <IconGift size={20} />
@@ -369,8 +426,8 @@ const filteredRewards = React.useMemo(() => {
           onClick={() => setActiveTab("claims")}
           className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition ${
             activeTab === "claims"
-              ? "bg-black text-white"
-              : "bg-white text-gray-700 hover:bg-gray-100"
+              ? "bg-primary text-primary-foreground"
+              : "bg-card text-foreground hover:bg-muted border border-border"
           }`}
         >
           <IconHistory size={20} />
@@ -380,111 +437,132 @@ const filteredRewards = React.useMemo(() => {
 
       {activeTab === "analytics" ? (
         <>
-          {/* Filters Section */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {/* Search */}
-              <div className="lg:col-span-3">
-                <label className="block text-sm font-semibold mb-2 text-gray-700">Search Reward Code</label>
+          {/* Search and Filters */}
+          <div className="bg-card border border-border rounded-lg p-4 md:p-6 mb-6">
+            <div className="flex flex-col sm:flex-row gap-3 mb-4 items-start sm:items-center">
+              <div className="relative flex-1 sm:max-w-md">
+                <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <input
                   type="text"
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="Enter reward code..."
+                  className="w-full pl-10 pr-4 py-2 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="Search reward code..."
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                 />
               </div>
-
-              {/* Sort By */}
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-gray-700">Sort By</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
-                  value={filter}
-                  onChange={e => setFilter(e.target.value)}
+              <div className="flex gap-2 items-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowFilters(!showFilters)}
+                  className="flex items-center gap-2"
                 >
-                  <option value="latest">Latest</option>
-                  <option value="oldest">Oldest</option>
-                  <option value="most">Most Claimed</option>
-                  <option value="first">Fastest First Claim</option>
-                  <option value="least">Least Claimed</option>
-                  <option value="pool">Pool Size</option>
-                </select>
-              </div>
-
-              {/* Status Filter */}
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-gray-700">Status</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
-                  value={statusFilter}
-                  onChange={e => setStatusFilter(e.target.value)}
-                >
-                  <option value="">All Statuses</option>
-                  <option value="active">Active</option>
-                  <option value="expired">Expired</option>
-                  <option value="depleted">Depleted</option>
-                </select>
-              </div>
-
-              {/* Date Range - Empty third column for alignment */}
-              <div></div>
-
-              {/* Date From */}
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-gray-700">From Date</label>
-                <input 
-                  type="date" 
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary" 
-                  value={dateFromInput} 
-                  onChange={e => setDateFromInput(e.target.value)} 
-                />
-              </div>
-
-              {/* Date To */}
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-gray-700">To Date</label>
-                <input 
-                  type="date" 
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary" 
-                  value={dateToInput} 
-                  onChange={e => setDateToInput(e.target.value)} 
-                />
-              </div>
-
-              {/* Apply Button */}
-              <div className="flex items-end">
-                <button
-                  className="w-full px-6 py-2.5 bg-black text-white rounded-lg font-semibold hover:bg-gray-800 transition shadow-sm"
-                  onClick={() => {
-                    setDateFrom(dateFromInput);
-                    setDateTo(dateToInput);
-                    setFilterTrigger(v => v + 1);
-                  }}
-                >
-                  Apply Filters
-                </button>
+                  <IconFilter className="h-4 w-4" />
+                  Filters
+                  {(statusFilter || dateFrom || dateTo || filter !== "latest") && (
+                    <div className="w-2 h-2 bg-primary rounded-full" />
+                  )}
+                </Button>
+                <div className="text-sm font-medium text-muted-foreground ml-2">
+                  Total Mana Codes: {filteredRewards.length}
+                </div>
               </div>
             </div>
+
+            {/* Collapsible Filters */}
+            {showFilters && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4 border-t border-border">
+                {/* Sort By */}
+                <div>
+                  <label className="block text-sm font-semibold mb-2">Sort By</label>
+                  <select
+                    className="w-full border border-input rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
+                    value={filter}
+                    onChange={e => setFilter(e.target.value)}
+                  >
+                    <option value="latest">Latest</option>
+                    <option value="oldest">Oldest</option>
+                    <option value="most">Most Claimed</option>
+                    <option value="first">Fastest First Claim</option>
+                    <option value="least">Least Claimed</option>
+                    <option value="pool">Pool Size</option>
+                  </select>
+                </div>
+
+                {/* Status Filter */}
+                <div>
+                  <label className="block text-sm font-semibold mb-2">Status</label>
+                  <select
+                    className="w-full border border-input rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
+                    value={statusFilter}
+                    onChange={e => setStatusFilter(e.target.value)}
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="active">Active</option>
+                    <option value="expired">Expired</option>
+                    <option value="depleted">Depleted</option>
+                  </select>
+                </div>
+
+                {/* Date Range - Empty third column for alignment */}
+                <div></div>
+
+                {/* Date From */}
+                <div>
+                  <label className="block text-sm font-semibold mb-2">From Date</label>
+                  <input 
+                    type="date" 
+                    className="w-full border border-input rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background" 
+                    value={dateFromInput} 
+                    onChange={e => setDateFromInput(e.target.value)} 
+                  />
+                </div>
+
+                {/* Date To */}
+                <div>
+                  <label className="block text-sm font-semibold mb-2">To Date</label>
+                  <input 
+                    type="date" 
+                    className="w-full border border-input rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background" 
+                    value={dateToInput} 
+                    onChange={e => setDateToInput(e.target.value)} 
+                  />
+                </div>
+
+                {/* Apply Button */}
+                <div className="flex items-end">
+                  <button
+                    className="w-full px-6 py-2.5 bg-primary text-primary-foreground rounded-lg font-semibold hover:bg-primary/90 transition-colors shadow-sm text-sm"
+                    onClick={() => {
+                      setDateFrom(dateFromInput);
+                      setDateTo(dateToInput);
+                      setFilterTrigger(v => v + 1);
+                    }}
+                  >
+                    Apply Filters
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
       {/* Analytics Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-12">
+      <div className="bg-card border border-border rounded-lg overflow-hidden mb-8">
         <div className="overflow-x-auto">
-          <table className="w-full font-['Montserrat']">
+          <table className="w-full">
             <thead>
-              <tr className="bg-gray-100 border-b border-gray-200">
-                <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">Reward Code</th>
-                <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Pool</th>
-                <th className="text-center px-6 py-4 font-bold text-sm text-gray-700">Status</th>
-                <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">Created</th>
-                <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Total Claimed</th>
-                <th className="text-center px-6 py-4 font-bold text-sm text-gray-700">Claimers</th>
-                <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Time to First Claim</th>
+              <tr className="bg-muted border-b border-border">
+                <th className="text-left px-6 py-4 font-semibold text-sm">Reward Code</th>
+                <th className="text-right px-6 py-4 font-semibold text-sm">Pool</th>
+                <th className="text-center px-6 py-4 font-semibold text-sm">Status</th>
+                <th className="text-left px-6 py-4 font-semibold text-sm">Created</th>
+                <th className="text-right px-6 py-4 font-semibold text-sm">Total Claimed</th>
+                <th className="text-center px-6 py-4 font-semibold text-sm">Claimers</th>
+                <th className="text-right px-6 py-4 font-semibold text-sm">Time to First Claim</th>
               </tr>
             </thead>
         <tbody>
-          {filteredRewards.map((r, idx) => {
+          {paginatedRewards.map((r, idx) => {
             const codeClaims = rewardClaims.filter(claim => claim.secretCode === r.secretCode);
             const totalClaimed = codeClaims.reduce((sum, claim) => sum + (claim.claimAmount || 0), 0);
             const claimers = Array.from(new Set(codeClaims.map(claim => claim.userId))).length;
@@ -533,17 +611,14 @@ const filteredRewards = React.useMemo(() => {
                 return claimedTime && createdTime ? (claimedTime - createdTime) / 1000 : null;
               })()
               : null;
-            // Auto-expire logic: if expiresAt is in the past, show 'expired' in UI
-            const now = Date.now();
-            const isExpired = r.expiresAt && new Date(r.expiresAt).getTime() < now;
-            const status = isExpired ? 'expired' : (r.status || 'unknown');
+            const status = r.computedStatus || 'unknown';
             return (
               <tr
                 key={r.id || idx}
-                className={`border-b border-gray-200 transition font-['Montserrat'] hover:bg-gray-50`}
+                className="border-b border-border hover:bg-muted/50 transition-colors"
               >
-                <td className="px-6 py-4 align-middle font-bold text-sm text-gray-900">{r.secretCode}</td>
-                <td className="px-6 py-4 align-middle text-sm text-right text-gray-700">₱{(r.pool || 0).toLocaleString()}</td>
+                <td className="px-6 py-4 align-middle font-semibold text-sm">{r.secretCode}</td>
+                <td className="px-6 py-4 align-middle text-sm text-right">₱{(r.pool || 0).toLocaleString()}</td>
                 <td className="px-6 py-4 align-middle text-center">
                   <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
                     status === 'active' ? 'bg-green-100 text-green-700' :
@@ -553,7 +628,7 @@ const filteredRewards = React.useMemo(() => {
                     {status.charAt(0).toUpperCase() + status.slice(1)}
                   </span>
                 </td>
-                <td className="px-6 py-4 align-middle text-sm text-gray-600">
+                <td className="px-6 py-4 align-middle text-sm">
                   {r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-US', { 
                     month: 'short', 
                     day: 'numeric', 
@@ -563,8 +638,8 @@ const filteredRewards = React.useMemo(() => {
                   }) : "-"}
                 </td>
                 <td className="px-6 py-4 align-middle text-sm text-right font-semibold text-green-600">₱{totalClaimed.toLocaleString()}</td>
-                <td className="px-6 py-4 align-middle text-sm text-center text-gray-700">{claimers}</td>
-                <td className="px-6 py-4 align-middle text-sm text-right text-gray-600">{timeToFirst !== null ? `${Math.round(timeToFirst)}s` : '-'}</td>
+                <td className="px-6 py-4 align-middle text-sm text-center">{claimers}</td>
+                <td className="px-6 py-4 align-middle text-sm text-right">{timeToFirst !== null ? `${Math.round(timeToFirst)}s` : '-'}</td>
               </tr>
             );
           })}
@@ -573,32 +648,65 @@ const filteredRewards = React.useMemo(() => {
         </div>
         {filteredRewards.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-gray-500">No rewards found matching your filters.</p>
+            <p className="text-muted-foreground">No rewards found matching your filters.</p>
           </div>
         )}
       </div>
 
+      {/* Pagination for Analytics */}
+      {analyticsTotalPages > 1 && (
+        <div className="mb-8">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  onClick={() => setAnalyticsCurrentPage(Math.max(1, analyticsCurrentPage - 1))}
+                  className={analyticsCurrentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+              {Array.from({ length: analyticsTotalPages }, (_, i) => i + 1).map((page) => (
+                <PaginationItem key={page}>
+                  <PaginationLink
+                    onClick={() => setAnalyticsCurrentPage(page)}
+                    isActive={page === analyticsCurrentPage}
+                    className="cursor-pointer"
+                  >
+                    {page}
+                  </PaginationLink>
+                </PaginationItem>
+              ))}
+              <PaginationItem>
+                <PaginationNext
+                  onClick={() => setAnalyticsCurrentPage(Math.min(analyticsTotalPages, analyticsCurrentPage + 1))}
+                  className={analyticsCurrentPage === analyticsTotalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      )}
+
       {/* Leaderboards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10 font-['Montserrat']">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <h3 className="font-bold text-xl mb-4 text-gray-900">Top Claimers</h3>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <table className="w-full font-['Montserrat']">
+          <h3 className="font-bold text-lg mb-4">Top Claimers</h3>
+          <div className="bg-card border border-border rounded-lg overflow-hidden">
+            <table className="w-full">
               <thead>
-                <tr className="bg-gray-100 border-b border-gray-200">
-                  <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">User</th>
-                  <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Total Claimed</th>
-                  <th className="text-center px-6 py-4 font-bold text-sm text-gray-700">Claims</th>
+                <tr className="bg-muted border-b border-border">
+                  <th className="text-left px-6 py-4 font-semibold text-sm">User</th>
+                  <th className="text-right px-6 py-4 font-semibold text-sm">Total Claimed</th>
+                  <th className="text-center px-6 py-4 font-semibold text-sm">Claims</th>
                 </tr>
               </thead>
               <tbody>
               {topClaimers.map((u, idx) => {
                 const member = members.find(m => m.id === u.userId);
                 return (
-                  <tr key={u.userId} className={`border-b border-gray-200 last:border-0 transition font-['Montserrat'] hover:bg-gray-50`}>
-                    <td className="px-6 py-4 align-middle text-sm font-medium text-gray-900">{member ? member.name : u.userId}</td>
+                  <tr key={u.userId} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
+                    <td className="px-6 py-4 align-middle text-sm font-medium">{member ? member.name : u.userId}</td>
                     <td className="px-6 py-4 align-middle text-sm text-right font-semibold text-green-600">₱{(u.total || 0).toLocaleString()}</td>
-                    <td className="px-6 py-4 align-middle text-sm text-center text-gray-700">{u.count || 0}</td>
+                    <td className="px-6 py-4 align-middle text-sm text-center">{u.count || 0}</td>
                   </tr>
                 );
               })}
@@ -606,30 +714,30 @@ const filteredRewards = React.useMemo(() => {
             </table>
             {topClaimers.length === 0 && (
               <div className="text-center py-8">
-                <p className="text-gray-500 text-sm">No claimers yet.</p>
+                <p className="text-muted-foreground text-sm">No claimers yet.</p>
               </div>
             )}
           </div>
         </div>
         <div>
-          <h3 className="font-bold text-xl mb-4 text-gray-900">Fastest Claimers (≥3 claims)</h3>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <table className="w-full font-['Montserrat']">
+          <h3 className="font-bold text-lg mb-4">Fastest Claimers (≥3 claims)</h3>
+          <div className="bg-card border border-border rounded-lg overflow-hidden">
+            <table className="w-full">
               <thead>
-                <tr className="bg-gray-100 border-b border-gray-200">
-                  <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">User</th>
-                  <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Avg. Time to Claim</th>
-                  <th className="text-center px-6 py-4 font-bold text-sm text-gray-700">Claims</th>
+                <tr className="bg-muted border-b border-border">
+                  <th className="text-left px-6 py-4 font-semibold text-sm">User</th>
+                  <th className="text-right px-6 py-4 font-semibold text-sm">Avg. Time to Claim</th>
+                  <th className="text-center px-6 py-4 font-semibold text-sm">Claims</th>
                 </tr>
               </thead>
               <tbody>
               {fastestClaimers.map((u, idx) => {
                 const member = members.find(m => m.id === u.userId);
                 return (
-                  <tr key={u.userId} className={`border-b border-gray-200 last:border-0 transition font-['Montserrat'] hover:bg-gray-50`}>
-                    <td className="px-6 py-4 align-middle text-sm font-medium text-gray-900">{member ? member.name : u.userId}</td>
+                  <tr key={u.userId} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
+                    <td className="px-6 py-4 align-middle text-sm font-medium">{member ? member.name : u.userId}</td>
                     <td className="px-6 py-4 align-middle text-sm text-right font-semibold text-blue-600">{Math.round((u.avgTime || 0) / 1000)}s</td>
-                    <td className="px-6 py-4 align-middle text-sm text-center text-gray-700">{u.count || 0}</td>
+                    <td className="px-6 py-4 align-middle text-sm text-center">{u.count || 0}</td>
                   </tr>
                 );
               })}
@@ -637,7 +745,7 @@ const filteredRewards = React.useMemo(() => {
             </table>
             {fastestClaimers.length === 0 && (
               <div className="text-center py-8">
-                <p className="text-gray-500 text-sm">No eligible claimers yet (minimum 3 claims required).</p>
+                <p className="text-muted-foreground text-sm">No eligible claimers yet (minimum 3 claims required).</p>
               </div>
             )}
           </div>
@@ -647,40 +755,42 @@ const filteredRewards = React.useMemo(() => {
       ) : (
         <>
           {/* Individual Claims Tab - Search */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-            <label className="block text-sm font-semibold mb-2 text-gray-700">Search Claims</label>
-            <input
-              type="text"
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="Search by user name, email, reward code, or user ID..."
-              value={claimsSearch}
-              onChange={e => setClaimsSearch(e.target.value)}
-            />
+          <div className="bg-card border border-border rounded-lg p-4 md:p-6 mb-6">
+            <div className="relative">
+              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                className="w-full pl-10 pr-4 py-2 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Search by user name, email, reward code, or user ID..."
+                value={claimsSearch}
+                onChange={e => setClaimsSearch(e.target.value)}
+              />
+            </div>
           </div>
 
           {filteredRewardClaims.length === 0 ? (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 text-center py-12">
-              <p className="text-lg text-gray-600">No reward claims found.</p>
-              <p className="text-sm text-gray-500 mt-2">Claims will appear here when users claim rewards.</p>
+            <div className="bg-card border border-border rounded-lg text-center py-12">
+              <p className="text-lg text-muted-foreground">No reward claims found.</p>
+              <p className="text-sm text-muted-foreground mt-2">Claims will appear here when users claim rewards.</p>
             </div>
           ) : (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full font-['Montserrat']">
+                <table className="w-full">
                   <thead>
-                    <tr className="bg-gray-100 border-b border-gray-200">
-                      <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">User Name</th>
-                      <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">Email</th>
-                      <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">Reward Code</th>
-                      <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Claim Amount</th>
-                      <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Pool Before</th>
-                      <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Pool After</th>
-                      <th className="text-left px-6 py-4 font-bold text-sm text-gray-700">Claimed At</th>
-                      <th className="text-right px-6 py-4 font-bold text-sm text-gray-700">Time to Claim</th>
+                    <tr className="bg-muted border-b border-border">
+                      <th className="text-left px-6 py-4 font-semibold text-sm">User Name</th>
+                      <th className="text-left px-6 py-4 font-semibold text-sm">Email</th>
+                      <th className="text-left px-6 py-4 font-semibold text-sm">Reward Code</th>
+                      <th className="text-right px-6 py-4 font-semibold text-sm">Claim Amount</th>
+                      <th className="text-right px-6 py-4 font-semibold text-sm">Pool Before</th>
+                      <th className="text-right px-6 py-4 font-semibold text-sm">Pool After</th>
+                      <th className="text-left px-6 py-4 font-semibold text-sm">Claimed At</th>
+                      <th className="text-right px-6 py-4 font-semibold text-sm">Time to Claim</th>
                     </tr>
                   </thead>
                   <tbody>
-                  {filteredRewardClaims.map((claim, idx) => {
+                  {paginatedClaims.map((claim, idx) => {
                     // Handle different date formats (ISO string, Firestore Timestamp, etc.)
                     let claimedDate;
                     const claimedAtValue = claim.claimedAt;
@@ -713,15 +823,15 @@ const filteredRewards = React.useMemo(() => {
                     return (
                       <tr
                         key={claim.id}
-                        className={`border-b border-gray-200 last:border-0 transition font-['Montserrat'] hover:bg-gray-50`}
+                        className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
                       >
-                        <td className="px-6 py-4 align-middle text-sm font-semibold text-gray-900">{claim.userName}</td>
-                        <td className="px-6 py-4 align-middle text-sm text-gray-600">{claim.userEmail}</td>
-                        <td className="px-6 py-4 align-middle text-sm font-bold text-gray-900">{claim.secretCode}</td>
+                        <td className="px-6 py-4 align-middle text-sm font-semibold">{claim.userName}</td>
+                        <td className="px-6 py-4 align-middle text-sm">{claim.userEmail}</td>
+                        <td className="px-6 py-4 align-middle text-sm font-semibold">{claim.secretCode}</td>
                         <td className="px-6 py-4 align-middle text-sm text-right font-bold text-green-600">₱{(claim.claimAmount || 0).toFixed(2)}</td>
-                        <td className="px-6 py-4 align-middle text-sm text-right text-gray-600">₱{(claim.poolBefore || 0).toFixed(2)}</td>
-                        <td className="px-6 py-4 align-middle text-sm text-right text-gray-600">₱{(claim.poolAfter || 0).toFixed(2)}</td>
-                        <td className="px-6 py-4 align-middle text-sm text-gray-600">
+                        <td className="px-6 py-4 align-middle text-sm text-right">₱{(claim.poolBefore || 0).toFixed(2)}</td>
+                        <td className="px-6 py-4 align-middle text-sm text-right">₱{(claim.poolAfter || 0).toFixed(2)}</td>
+                        <td className="px-6 py-4 align-middle text-sm">
                           {claimedDate && !isNaN(claimedDate.getTime()) ? 
                             claimedDate.toLocaleDateString('en-US', { 
                               month: 'short', 
@@ -732,13 +842,46 @@ const filteredRewards = React.useMemo(() => {
                             }) : 'Invalid Date'
                           }
                         </td>
-                        <td className="px-6 py-4 align-middle text-sm text-right text-gray-600">{timeDisplay}</td>
+                        <td className="px-6 py-4 align-middle text-sm text-right">{timeDisplay}</td>
                       </tr>
                     );
                   })}
                 </tbody>
                 </table>
               </div>
+
+              {/* Pagination for Claims */}
+              {claimsTotalPages > 1 && (
+                <div className="mt-6">
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          onClick={() => setClaimsCurrentPage(Math.max(1, claimsCurrentPage - 1))}
+                          className={claimsCurrentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                      {Array.from({ length: claimsTotalPages }, (_, i) => i + 1).map((page) => (
+                        <PaginationItem key={page}>
+                          <PaginationLink
+                            onClick={() => setClaimsCurrentPage(page)}
+                            isActive={page === claimsCurrentPage}
+                            className="cursor-pointer"
+                          >
+                            {page}
+                          </PaginationLink>
+                        </PaginationItem>
+                      ))}
+                      <PaginationItem>
+                        <PaginationNext
+                          onClick={() => setClaimsCurrentPage(Math.min(claimsTotalPages, claimsCurrentPage + 1))}
+                          className={claimsCurrentPage === claimsTotalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              )}
             </div>
           )}
         </>

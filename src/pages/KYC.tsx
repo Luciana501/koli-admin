@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { User } from "@/types/admin";
 import { subscribeToKYC, updateKYCStatus } from "@/services/firestore";
-import { IconCheck, IconX, IconUser, IconEye, IconPhone, IconMapPin, IconCalendar, IconDownload } from "@tabler/icons-react";
+import { IconCheck, IconX, IconUser, IconEye, IconPhone, IconMapPin, IconCalendar, IconDownload, IconFilter } from "@tabler/icons-react";
 import Pagination from "@/components/Pagination";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -10,6 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const KYC = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -21,6 +28,7 @@ const KYC = () => {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const { toast } = useToast();
   const itemsPerPage = 10;
+  const [kycStatusFilter, setKycStatusFilter] = useState("all");
 
   useEffect(() => {
     // Subscribe to real-time KYC updates
@@ -32,9 +40,21 @@ const KYC = () => {
     return () => unsubscribe();
   }, []);
 
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+    setHistoryPage(1);
+  }, [kycStatusFilter]);
+
   const pendingKYC = users.filter((u) => u.kycStatus === "PENDING");
-  const processedKYC = users.filter((u) => u.kycStatus && u.kycStatus !== "PENDING");
   
+  const processedKYC = users.filter((u) => {
+    const isProcessed = u.kycStatus === "APPROVED" || u.kycStatus === "REJECTED";
+    if (!isProcessed) return false;
+    if (kycStatusFilter === "all") return true;
+    return u.kycStatus === kycStatusFilter;
+  });
+
   const totalPages = Math.ceil(pendingKYC.length / itemsPerPage);
   const historyTotalPages = Math.ceil(processedKYC.length / itemsPerPage);
   
@@ -109,10 +129,10 @@ const KYC = () => {
   }
 
   return (
-    <div className="p-6 md:p-8 lg:p-10 space-y-8">
+    <div className="space-y-6">
       {/* Header Section */}
       <div className="space-y-2">
-        <h1 className="text-3xl md:text-4xl font-bold tracking-tight">KYC Verification</h1>
+        <h1 className="text-3xl font-bold tracking-tight">KYC Verification</h1>
         <p className="text-base text-muted-foreground">
           Review and validate user identity verification requests
         </p>
@@ -206,12 +226,30 @@ const KYC = () => {
       </div>
 
       {/* KYC History */}
-      <div className="space-y-5 mt-12">
+      <div className="space-y-5">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Verification History</h2>
           <div className="px-3 py-1.5 bg-muted text-muted-foreground rounded-full text-sm font-medium">
             {processedKYC.length} Processed
           </div>
+        </div>
+        
+        {/* Filter Feature */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <IconFilter className="h-5 w-5 text-muted-foreground" />
+            <label className="text-sm font-medium text-foreground">Filter by Status:</label>
+          </div>
+          <Select value={kycStatusFilter} onValueChange={setKycStatusFilter}>
+            <SelectTrigger className="w-[180px] h-10">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="APPROVED">Approved</SelectItem>
+              <SelectItem value="REJECTED">Rejected</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         
         {processedKYC.length === 0 ? (

@@ -1,7 +1,41 @@
 import * as React from "react";
 import { useState, useEffect } from "react";
-import { doc, getDoc, collection, getDocs, addDoc, updateDoc, writeBatch } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  collection,
+  getDocs,
+  addDoc,
+  writeBatch,
+  onSnapshot,
+  setDoc,
+  query,
+  where,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type RewardHistoryItem = {
   id?: string;
@@ -17,145 +51,233 @@ type RewardHistoryItem = {
 };
 
 const ManaRewardPanel = () => {
-  const [inputCode, setInputCode] = React.useState("");
-  const [inputPool, setInputPool] = React.useState("");
-  const [activeCode, setActiveCode] = React.useState("");
-  const [totalPool, setTotalPool] = React.useState(0);
-  const [remaining, setRemaining] = React.useState(0);
-  const [expiresAt, setExpiresAt] = React.useState("");
-  const [expirationValue, setExpirationValue] = React.useState("");
-  const [expirationUnit, setExpirationUnit] = React.useState("minutes");
-  const [createdAt, setCreatedAt] = React.useState("");
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState("");
-  const [history, setHistory] = React.useState<RewardHistoryItem[]>([]);
-  // For real-time UI updates (e.g., code expiration)
-  const [, setNow] = React.useState(Date.now());
-  React.useEffect(() => {
-    // Update every second to trigger re-render for expiration
-    const interval = setInterval(() => setNow(Date.now()), 1000);
+  const [inputCode, setInputCode] = useState("");
+  const [inputPool, setInputPool] = useState("");
+  const [activeCode, setActiveCode] = useState("");
+  const [totalPool, setTotalPool] = useState(0);
+  const [remaining, setRemaining] = useState(0);
+  const [expiresAt, setExpiresAt] = useState("");
+  const [expirationValue, setExpirationValue] = useState("");
+  const [expirationUnit, setExpirationUnit] = useState("minutes");
+  const [createdAt, setCreatedAt] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [history, setHistory] = useState<RewardHistoryItem[]>([]);
+  const [historySearch, setHistorySearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const itemsPerPage = 10;
+
+  // --- Real-time re-render for expiration ---
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  const fetchRewards = async () => {
-    setLoading(true);
-    try {
-      // Fetch active code and pool info from globalRewards/currentActiveReward
-      const docRef = doc(db, "globalRewards", "currentActiveReward");
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setActiveCode(data.activeCode || "");
-        setTotalPool(data.totalPool || 0);
-        setRemaining(data.remainingPool || 0);
-        setExpiresAt(data.expiresAt || "");
-        setCreatedAt(data.createdAt || "");
-      }
 
-      const rewardsHistoryRef = collection(db, "rewardsHistory");
-      const rewardsHistorySnap = await getDocs(rewardsHistoryRef);
-      
-      // Check for expired rewards and update them
+  // --- Real-time listeners ---
+  useEffect(() => {
+    const unsubscribeActiveReward = onSnapshot(
+      doc(db, "globalRewards", "currentActiveReward"),
+      async (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          const now = new Date();
+          const expires = data.expiresAt ? new Date(data.expiresAt) : null;
+          
+          // Check if the active reward has expired
+          if (expires && expires < now) {
+            // Reset the active reward since it's expired
+            await setDoc(docSnap.ref, {
+              activeCode: "",
+              totalPool: 0,
+              remainingPool: 0,
+              createdAt: "",
+              expiresAt: "",
+              updatedAt: now.toISOString(),
+            });
+            
+            setActiveCode("");
+            setTotalPool(0);
+            setRemaining(0);
+            setExpiresAt("");
+            setCreatedAt("");
+          } else {
+            setActiveCode(data.activeCode || "");
+            setTotalPool(data.totalPool || 0);
+            setRemaining(data.remainingPool || 0);
+            setExpiresAt(data.expiresAt || "");
+            setCreatedAt(data.createdAt || "");
+          }
+        } else {
+          setActiveCode("");
+          setTotalPool(0);
+          setRemaining(0);
+          setExpiresAt("");
+          setCreatedAt("");
+        }
+      }
+    );
+
+    const unsubscribeHistory = onSnapshot(
+      collection(db, "rewardsHistory"),
+      async (snapshot) => {
+        const now = new Date();
+        const batch = writeBatch(db);
+        let expiredCount = 0;
+
+        snapshot.docs.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.status === "active" && data.expiresAt) {
+            const expires = new Date(data.expiresAt);
+            if (expires < now) {
+              batch.update(docSnap.ref, {
+                status: "expired",
+                expiredAt: now.toISOString(),
+              });
+              expiredCount++;
+            }
+          }
+        });
+
+        if (expiredCount > 0) {
+          await batch.commit();
+        }
+
+        const hist: RewardHistoryItem[] = snapshot.docs
+          .map((doc) => {
+            const data = doc.data();
+            // Check expiration status in real-time on the client side
+            let currentStatus = data.status;
+            if (data.status === "active" && data.expiresAt) {
+              const expires = new Date(data.expiresAt);
+              if (expires < now) {
+                currentStatus = "expired";
+              }
+            }
+            return { 
+              id: doc.id, 
+              ...data, 
+              status: currentStatus 
+            } as RewardHistoryItem;
+          })
+          .sort((a, b) => {
+            const aTime = a.createdAt
+              ? new Date(a.createdAt).getTime()
+              : 0;
+            const bTime = b.createdAt
+              ? new Date(b.createdAt).getTime()
+              : 0;
+            return bTime - aTime;
+          });
+
+        setHistory(hist);
+      }
+    );
+
+    // Periodic check to update expired items in Firestore (every 10 seconds)
+    const expirationCheckInterval = setInterval(async () => {
       const now = new Date();
       const batch = writeBatch(db);
       let expiredCount = 0;
-      
-      rewardsHistorySnap.docs.forEach((docSnap) => {
+
+      const historySnapshot = await getDocs(collection(db, "rewardsHistory"));
+      historySnapshot.docs.forEach((docSnap) => {
         const data = docSnap.data();
-        if (data.status === 'active' && data.expiresAt) {
+        if (data.status === "active" && data.expiresAt) {
           const expires = new Date(data.expiresAt);
           if (expires < now) {
-            // Update this document to expired status
-            batch.update(docSnap.ref, { 
-              status: 'expired',
-              expiredAt: now.toISOString()
+            batch.update(docSnap.ref, {
+              status: "expired",
+              expiredAt: now.toISOString(),
             });
             expiredCount++;
           }
         }
       });
-      
-      // Commit batch update if there are expired rewards
+
       if (expiredCount > 0) {
         await batch.commit();
-        console.log(`Auto-expired ${expiredCount} reward code(s)`);
       }
-      
-      const hist: RewardHistoryItem[] = rewardsHistorySnap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as RewardHistoryItem))
-        .sort((a, b) => {
-          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return bTime - aTime;
-        });
-      setHistory(hist);
-    } catch (e) {
-      setError("Failed to fetch rewards");
-    } finally {
-      setLoading(false);
-    }
-  };
+    }, 10000); // Check every 10 seconds
 
-  useEffect(() => {
-    fetchRewards();
+    return () => {
+      unsubscribeActiveReward();
+      unsubscribeHistory();
+      clearInterval(expirationCheckInterval);
+    };
   }, []);
 
   const handleGenerate = async () => {
     setLoading(true);
+    setError("");
     try {
+      // Check if the code already exists in rewardsHistory
+      const existingCodeQuery = query(
+        collection(db, "rewardsHistory"),
+        where("secretCode", "==", inputCode)
+      );
+      const existingCodeSnapshot = await getDocs(existingCodeQuery);
+      
+      if (!existingCodeSnapshot.empty) {
+        setError("This MANA code has already been used. Please enter a different code.");
+        setLoading(false);
+        return;
+      }
+
       const now = new Date();
       let multiplier = 1;
       if (expirationUnit === "hours") multiplier = 60;
       if (expirationUnit === "days") multiplier = 60 * 24;
-      const expires = new Date(now.getTime() + Number(expirationValue) * multiplier * 60 * 1000);
 
-      // Fetch previous remaining pool
+      const expires = new Date(
+        now.getTime() +
+          Number(expirationValue) * multiplier * 60 * 1000
+      );
+
       let prevRemaining = 0;
       let prevExpiresAt = "";
+
       const docRef = doc(db, "globalRewards", "currentActiveReward");
       const docSnap = await getDoc(docRef);
+
       if (docSnap.exists()) {
         const data = docSnap.data();
         prevRemaining = data.remainingPool || 0;
         prevExpiresAt = data.expiresAt || "";
       }
 
-      // If previous code is still active, accumulate
+      let newTotalPool = Number(inputPool);
       let newRemainingPool = Number(inputPool);
       if (prevExpiresAt && new Date(prevExpiresAt) > now) {
+        newTotalPool += prevRemaining;
         newRemainingPool += prevRemaining;
       }
 
-      // Save to globalRewards/currentActiveReward (overwrite doc)
-      await import("firebase/firestore").then(({ setDoc }) =>
-        setDoc(doc(db, "globalRewards", "currentActiveReward"), {
-          activeCode: inputCode,
-          totalPool: Number(inputPool),
-          remainingPool: newRemainingPool,
-          createdAt: now.toISOString(),
-          expiresAt: expires.toISOString(),
-          updatedAt: now.toISOString(),
-        })
-      );
+      await setDoc(docRef, {
+        activeCode: inputCode,
+        totalPool: newTotalPool,
+        remainingPool: newRemainingPool,
+        createdAt: now.toISOString(),
+        expiresAt: expires.toISOString(),
+        updatedAt: now.toISOString(),
+      });
 
-      // Add to rewardsHistory for admin/history
       await addDoc(collection(db, "rewardsHistory"), {
         secretCode: inputCode,
         pool: Number(inputPool),
         createdAt: now.toISOString(),
         expiresAt: expires.toISOString(),
         type: "mana",
-        status: "active"
+        status: "active",
       });
 
-      setActiveCode(inputCode);
-      setTotalPool(Number(inputPool));
-      setRemaining(newRemainingPool);
-      setCreatedAt(now.toISOString());
-      setExpiresAt(expires.toISOString());
       setInputCode("");
       setInputPool("");
-      fetchRewards();
+      setExpirationValue("");
     } catch (e) {
       setError("Failed to generate reward");
     } finally {
@@ -163,169 +285,326 @@ const ManaRewardPanel = () => {
     }
   };
 
-  // --- Remaining Balance Calculation ---
-  const now = new Date();
-  const activePools = history
-    .filter(item => {
-      const expires = item.expiresAt ? new Date(item.expiresAt) : null;
-      return expires && expires > now;
-    })
-    .reduce((sum, item) => sum + (item.pool || 0), 0);
+  const filteredHistory = React.useMemo(() => {
+    return history.filter((item) => {
+      const matchesSearch = (item.activeCode ||
+        item.secretCode ||
+        item.code ||
+        "")
+        .toLowerCase()
+        .includes(historySearch.toLowerCase());
+      
+      // Check real-time expiration status
+      let currentStatus = item.status;
+      if (item.status === "active" && item.expiresAt) {
+        const expires = new Date(item.expiresAt);
+        if (expires < now) {
+          currentStatus = "expired";
+        }
+      }
+      
+      const matchesStatus = statusFilter === "all" || currentStatus === statusFilter;
+      
+      let matchesDate = true;
+      if (dateFilter && item.createdAt) {
+        const itemDate = new Date(item.createdAt).toISOString().split('T')[0];
+        matchesDate = itemDate === dateFilter;
+      }
+      
+      return matchesSearch && matchesStatus && matchesDate;
+    });
+  }, [history, historySearch, statusFilter, dateFilter, now]);
+
+  const totalPages = Math.ceil(
+    filteredHistory.length / itemsPerPage
+  );
+
+  const paginatedHistory = React.useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredHistory.slice(
+      startIndex,
+      startIndex + itemsPerPage
+    );
+  }, [filteredHistory, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [historySearch, statusFilter, dateFilter]);
+
+  const recentCodes = React.useMemo(
+    () => history.slice(0, 3),
+    [history]
+  );
+
+  // Compute real-time display values for remaining balance
+  const isExpired = expiresAt ? new Date(expiresAt) < now : false;
+  const displayRemaining = isExpired ? 0 : remaining;
+  const displayTotalPool = isExpired ? 0 : totalPool;
 
   return (
-    <div className="flex items-center justify-center min-h-screen w-full">
-      <div className="bg-card border border-border rounded-2xl p-8 flex flex-col gap-4 font-['Montserrat'] shadow-lg w-full max-w-5xl mx-auto" style={{ fontFamily: 'Montserrat, sans-serif', minWidth: 1000, marginTop: -100 }}>
-        <h3 className="font-extrabold text-2xl mb-4 tracking-tight text-center">MANA Reward Control Panel</h3>
-        <div className="flex flex-col gap-2">
-          <label className="text-sm font-semibold mb-1">Active Reward Code</label>
-          <input
-            type="text"
-            value={inputCode}
-            onChange={e => setInputCode(e.target.value)}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-lg text-left bg-white"
-            placeholder="Enter reward code"
-            style={{ textAlign: 'left' }}
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <label className="text-sm font-semibold mb-1">Total Reward Pool</label>
-          <input
-            type="number"
-            value={inputPool}
-            onChange={e => setInputPool(e.target.value)}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-lg text-left bg-white"
-            placeholder="Enter total pool"
-            style={{ textAlign: 'left' }}
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <label className="text-sm font-semibold mb-1">Expiration Time</label>
-          <div className="flex gap-2">
-            <input
-              type="number"
-              min={0}
-              value={expirationValue}
-              onChange={e => setExpirationValue(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-lg text-left bg-white"
-              placeholder="Expiration"
-              style={{ textAlign: 'left' }}
-            />
-            <select
-              value={expirationUnit}
-              onChange={e => setExpirationUnit(e.target.value)}
-              className="px-2 py-3 border border-gray-300 rounded-lg text-lg bg-white"
+    <div className="flex items-stretch gap-4 w-full min-h-[calc(100vh-10rem)]">
+
+      {/* LEFT PANEL */}
+      <div className="w-[340px] bg-card border border-border rounded-lg p-6 flex flex-col shadow-sm overflow-auto shrink-0">
+
+          <h2 className="font-bold text-2xl mb-6 text-foreground">
+            MANA Reward Control Panel
+          </h2>
+          <div className="flex flex-col gap-4 flex-grow">
+
+            {/* Inputs */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-muted-foreground">
+                Active Reward Code
+              </label>
+              <input
+                type="text"
+                value={inputCode}
+                onChange={(e) => {
+                  setInputCode(e.target.value);
+                  if (error) setError("");
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-white h-10"
+                placeholder="Enter reward code"
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-muted-foreground">
+                Total Reward Pool
+              </label>
+              <input
+                type="number"
+                value={inputPool}
+                onChange={(e) => setInputPool(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-white h-10"
+                placeholder="Enter total pool"
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-muted-foreground">
+                Expiration Time
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  value={expirationValue}
+                  onChange={(e) =>
+                    setExpirationValue(e.target.value)
+                  }
+                  className="w-28 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-white h-10"
+                  placeholder="Time"
+                />
+                <select
+                  value={expirationUnit}
+                  onChange={(e) =>
+                    setExpirationUnit(e.target.value)
+                  }
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white h-10"
+                >
+                  <option value="minutes">Minutes</option>
+                  <option value="hours">Hours</option>
+                  <option value="days">Days</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={loading || !inputCode || !inputPool}
+              className="w-full py-2.5 bg-black text-white rounded-lg font-bold text-sm hover:bg-gray-800 transition disabled:opacity-50"
             >
-              <option value="minutes">Minutes</option>
-              <option value="hours">Hours</option>
-              <option value="days">Days</option>
-            </select>
-          </div>
-        </div>
-        {/* Only allow Generate if no non-expired code exists */}
-        <button
-          type="button"
-          onClick={handleGenerate}
-          className="w-full py-3 mt-2 bg-black text-white rounded-lg font-bold text-lg tracking-wide hover:bg-primary/90 transition shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          disabled={
-            loading ||
-            !inputCode ||
-            !inputPool
-          }
-        >
-          {loading && <span className="loading loading-infinity loading-md"></span>}
-          {loading ? "Generating..." : "Generate"}
-        </button>
-        <div className="flex flex-col gap-2 mt-4">
-          <label className="text-sm font-semibold mb-1">Remaining Balance</label>
-          <div className="w-full bg-muted rounded-lg h-4 overflow-hidden">
-            <div
-              className="bg-green-500 h-4 rounded-lg transition-all duration-300"
-              style={{ width: `${activePools > 0 ? 100 : 0}%` }}
-            />
-          </div>
-          <span className="text-sm font-medium mt-1">
-            {activePools > 0 ? `${activePools} / ${activePools}` : "0 / 0"}
-          </span>
-        </div>
-        <div className="mt-8">
-          <h4 className="font-bold text-lg mb-4 text-center">Previous Codes</h4>
-          <div className="max-h-48 overflow-y-auto border rounded-xl p-4 bg-muted/30">
-            {history.filter(item => {
-              // Only show non-active codes
-              const now = new Date();
-              const expires = item.expiresAt ? new Date(item.expiresAt) : null;
-              const isExpired = expires && expires < now;
-              const isDepleted = (typeof item.pool === 'number' && item.pool <= 0) || 
-                                 (typeof item.remainingPool === 'number' && item.remainingPool <= 0);
-              return isExpired || isDepleted || (item.status !== 'active');
-            }).length === 0 ? (
-              <span className="text-base text-muted-foreground">No previous codes.</span>
-            ) : (
-              <table className="w-full max-w-[1200px] text-base">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left font-bold py-2 px-2">Code</th>
-                    <th className="text-left font-bold py-2 px-2">Pool</th>
-                    <th className="text-left font-bold py-2 px-2">Created</th>
-                    <th className="text-left font-bold py-2 px-2">Expires</th>
-                    <th className="text-left font-bold py-2 px-2">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {history
-                    .filter(item => {
-                      // Only show non-active codes in history
-                      const now = new Date();
-                      const expires = item.expiresAt ? new Date(item.expiresAt) : null;
-                      const isExpired = expires && expires < now;
-                      const isDepleted = (typeof item.pool === 'number' && item.pool <= 0) || 
-                                         (typeof item.remainingPool === 'number' && item.remainingPool <= 0);
-                      return isExpired || isDepleted || (item.status !== 'active');
-                    })
-                    .map((item, idx) => {
-                    // Compute status
-                    let status = item.status || 'unknown';
-                    const now = new Date();
-                    const expires = item.expiresAt ? new Date(item.expiresAt) : null;
-                    if (expires && expires < now) {
-                      status = 'expired';
-                    } else if ((typeof item.pool === 'number' && item.pool <= 0) || 
-                               (typeof item.remainingPool === 'number' && item.remainingPool <= 0)) {
-                      status = 'depleted';
-                    }
-                    // Show pool, fallback to totalPool, always show a value (even 0)
-                    const poolValue = (item.pool !== undefined && item.pool !== null)
-                      ? item.pool
-                      : (item.totalPool !== undefined && item.totalPool !== null)
-                        ? item.totalPool
-                        : 0;
-                    return (
-                      <tr key={item.id || idx} className="border-b last:border-0">
-                        <td className="text-left font-semibold py-2 px-2">{item.activeCode || item.secretCode || item.code}</td>
-                        <td className="text-left text-muted-foreground py-2 px-2">₱{poolValue}</td>
-                        <td className="text-left text-muted-foreground py-2 px-2">{item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</td>
-                        <td className="text-left text-muted-foreground py-2 px-2">{item.expiresAt ? new Date(item.expiresAt).toLocaleString() : ''}</td>
-                        <td className="text-left py-2 px-2">
-                          <span className={
-                            status === 'active' ? 'text-green-600 font-semibold' :
-                            status === 'expired' ? 'text-red-500 font-semibold' :
-                            status === 'depleted' ? 'text-red-600 font-semibold' :
-                            'text-gray-500 font-semibold'
-                          }>
-                            {status.charAt(0).toUpperCase() + status.slice(1)}
-                          </span>
-                        </td>
+              {loading ? "Generating..." : "Generate"}
+            </button>
+
+            {/* Error Message */}
+            {error && (
+              <div className="w-full p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
+
+            {/* Remaining */}
+            <div className="mt-6">
+              <label className="text-sm font-medium text-muted-foreground">
+                Remaining Balance
+              </label>
+              <div className="w-full bg-muted rounded-lg h-3 mt-1.5 overflow-hidden">
+                <div
+                  className="bg-green-500 h-3 transition-all duration-500"
+                  style={{
+                    width:
+                      displayTotalPool > 0
+                        ? `${(displayRemaining / displayTotalPool) * 100}%`
+                        : "0%",
+                  }}
+                />
+              </div>
+              <span className="text-xs font-medium mt-1.5 block">
+                {displayTotalPool > 0
+                  ? `${displayRemaining} / ${displayTotalPool}`
+                  : "0 / 0"}
+              </span>
+            </div>
+
+            {/* Recent Codes */}
+            <div className="mt-auto pt-6 border-t">
+              <h4 className="font-semibold text-base mb-4">
+                Recent Codes
+              </h4>
+
+              <div className="border rounded-lg p-3 bg-muted/20">
+                {recentCodes.length === 0 ? (
+                  <span className="text-muted-foreground">
+                    No recent codes.
+                  </span>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2">Code</th>
+                        <th className="text-left py-2">Pool</th>
+                        <th className="text-left py-2">Status</th>
                       </tr>
+                    </thead>
+                    <tbody>
+                      {recentCodes.map((item, idx) => (
+                        <tr key={item.id || idx}>
+                          <td className="py-2 font-semibold">
+                            {item.secretCode}
+                          </td>
+                          <td>₱{item.pool}</td>
+                          <td className={`font-semibold ${item.status === 'active' ? 'text-green-600' : 'text-red-500'}`}>
+                            {item.status}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT PANEL */}
+        <div className="flex-1 bg-card border border-border rounded-lg p-6 flex flex-col shadow-sm overflow-auto min-w-0">
+          <h2 className="font-bold text-2xl mb-6 text-foreground">
+            Reward History
+          </h2>
+          <div className="flex flex-col gap-4 flex-grow">
+            <div className="flex gap-4">
+              <div className="flex flex-col gap-2 flex-1">
+                <label className="text-sm font-medium text-muted-foreground">
+                  Search History
+                </label>
+                <input
+                  type="text"
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-white h-10"
+                  placeholder="Search codes"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-muted-foreground">
+                  Filter by Status
+                </label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white h-10">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="expired">Expired</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-muted-foreground">
+                  Filter by Date
+                </label>
+                <input
+                  type="date"
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value)}
+                  className="w-40 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-white h-10"
+                />
+              </div>
+            </div>
+            <div className="flex-grow overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Code</TableHead>
+                    <TableHead>Pool</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Expires</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedHistory.map((item, idx) => {
+                    // Compute real-time status for display
+                    let displayStatus = item.status;
+                    if (item.status === "active" && item.expiresAt) {
+                      const expires = new Date(item.expiresAt);
+                      if (expires < now) {
+                        displayStatus = "expired";
+                      }
+                    }
+                    
+                    return (
+                      <TableRow key={item.id || idx}>
+                        <TableCell className="font-semibold">
+                          {item.secretCode || item.activeCode || item.code}
+                        </TableCell>
+                        <TableCell>₱{item.pool}</TableCell>
+                        <TableCell className={`font-semibold ${displayStatus === 'active' ? 'text-green-600' : 'text-red-500'}`}>
+                          {displayStatus}
+                        </TableCell>
+                        <TableCell>{item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</TableCell>
+                        <TableCell>{item.expiresAt ? new Date(item.expiresAt).toLocaleString() : ''}</TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
-            )}
+                </TableBody>
+              </Table>
+            </div>
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setCurrentPage(page)}
+                      isActive={page === currentPage}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                    className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
           </div>
         </div>
-        {error && <span className="text-xs text-red-500 mt-2">{error}</span>}
       </div>
-    </div>
   );
 };
 
