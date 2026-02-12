@@ -1,12 +1,22 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { subscribeToChatMessages, ChatMessage } from "@/services/chat";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { useAuth } from "@/context/AuthContext";
 import { IconMessage } from "@tabler/icons-react";
+
+interface Admin {
+  id: string;
+  email: string;
+  type: "main" | "finance";
+}
 
 const ChatList = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [admins, setAdmins] = useState<Admin[]>([]);
   const [loading, setLoading] = useState(true);
+  const { adminType } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -18,34 +28,82 @@ const ChatList = () => {
     return () => unsubscribe();
   }, []);
 
-  // Group messages by sender
+  useEffect(() => {
+    const fetchAdmins = async () => {
+      try {
+        const adminsRef = collection(db, "admins");
+        const oppositeType = adminType === "main" ? "finance" : "main";
+        const q = query(adminsRef, where("type", "==", oppositeType));
+        const snapshot = await getDocs(q);
+        
+        const adminsList: Admin[] = snapshot.docs.map(doc => ({
+          id: doc.id,
+          email: doc.data().email,
+          type: doc.data().type
+        }));
+        
+        setAdmins(adminsList);
+      } catch (error) {
+        console.error("Error fetching admins:", error);
+      }
+    };
+
+    if (adminType) {
+      fetchAdmins();
+    }
+  }, [adminType]);
+
+  // Group messages by sender and merge with all admins
   const getConversations = () => {
     const currentUserId = auth.currentUser?.uid;
-    const conversations = new Map<string, ChatMessage[]>();
+    const conversations = new Map<string, any>();
 
+    // First, add all opposite-type admins
+    admins.forEach(admin => {
+      conversations.set(admin.id, {
+        senderId: admin.id,
+        senderName: admin.email.split('@')[0], // Use email username as name
+        senderType: admin.type,
+        latestMessage: null,
+        timestamp: null,
+        unreadCount: 0,
+        messages: [],
+      });
+    });
+
+    // Then, overlay with actual messages
     messages.forEach((msg) => {
       if (msg.senderId !== currentUserId) {
         if (!conversations.has(msg.senderId)) {
-          conversations.set(msg.senderId, []);
+          conversations.set(msg.senderId, {
+            senderId: msg.senderId,
+            senderName: msg.senderName,
+            senderType: msg.senderType,
+            latestMessage: null,
+            timestamp: null,
+            unreadCount: 0,
+            messages: [],
+          });
         }
-        conversations.get(msg.senderId)!.push(msg);
+        
+        const conv = conversations.get(msg.senderId)!;
+        conv.messages.push(msg);
+        conv.latestMessage = msg.message;
+        conv.timestamp = msg.timestamp;
+        conv.senderName = msg.senderName; // Update with actual name from message
+        if (!msg.read) {
+          conv.unreadCount++;
+        }
       }
     });
 
-    // Convert to array and sort by latest message
-    return Array.from(conversations.entries()).map(([senderId, msgs]) => {
-      const latestMessage = msgs[msgs.length - 1];
-      const unreadCount = msgs.filter((m) => !m.read).length;
-      return {
-        senderId,
-        senderName: latestMessage.senderName,
-        senderType: latestMessage.senderType,
-        latestMessage: latestMessage.message,
-        timestamp: latestMessage.timestamp,
-        unreadCount,
-        messages: msgs,
-      };
-    }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    // Convert to array and sort by latest message (conversations with messages first)
+    return Array.from(conversations.values()).sort((a, b) => {
+      if (!a.timestamp && !b.timestamp) return 0;
+      if (!a.timestamp) return 1; // Push empty conversations to the end
+      if (!b.timestamp) return -1;
+      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    });
   };
 
   const conversations = getConversations();
@@ -69,18 +127,6 @@ const ChatList = () => {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-muted-foreground">Loading messages...</div>
-      </div>
-    );
-  }
-
-  if (conversations.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center p-8">
-        <IconMessage className="h-16 w-16 text-muted-foreground mb-4" />
-        <h2 className="text-xl font-semibold mb-2">No messages yet</h2>
-        <p className="text-muted-foreground">
-          Start a conversation with other admins
-        </p>
       </div>
     );
   }
@@ -113,14 +159,16 @@ const ChatList = () => {
                   <h3 className="font-semibold truncate">
                     {conversation.senderName}
                   </h3>
-                  <span className="text-xs text-muted-foreground flex-shrink-0 ml-2">
-                    {formatTime(conversation.timestamp)}
-                  </span>
+                  {conversation.timestamp && (
+                    <span className="text-xs text-muted-foreground flex-shrink-0 ml-2">
+                      {formatTime(conversation.timestamp)}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-muted-foreground truncate">
-                    {conversation.latestMessage}
+                    {conversation.latestMessage || "No messages yet - start a conversation"}
                   </p>
                   {conversation.unreadCount > 0 && (
                     <span className="flex-shrink-0 ml-2 bg-primary text-primary-foreground text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">

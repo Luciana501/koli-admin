@@ -589,11 +589,11 @@ const Reports = () => {
   };
 
   return (
-    <div className="h-full bg-background">
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+    <div className="h-full bg-background p-4 md:p-6 lg:p-8">
+      <div className="mb-4 md:mb-6 flex flex-col gap-3 md:gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Reports</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-xl md:text-2xl font-bold">Reports</h1>
+          <p className="text-xs md:text-sm text-muted-foreground mt-1">
             View analytics and statistics
           </p>
           {chartData.length > 0 && (
@@ -607,15 +607,16 @@ const Reports = () => {
             </>
           )}
         </div>
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col sm:flex-row gap-2 md:gap-3">
           <Button
             onClick={handleExportPDF}
             variant="outline"
-            className="gap-2 w-full sm:w-auto"
+            className="gap-2 w-full sm:w-auto text-sm"
             disabled={loading || chartData.length === 0}
           >
             <IconDownload className="h-4 w-4" />
-            Export Comprehensive PDF
+            <span className="hidden sm:inline">Export Comprehensive PDF</span>
+            <span className="sm:hidden">Export PDF</span>
           </Button>
           <Select value={timeRange} onValueChange={setTimeRange}>
             <SelectTrigger className="w-full sm:w-[180px]">
@@ -658,8 +659,8 @@ const Reports = () => {
         {/* Line Chart */}
         <Card>
           <CardHeader>
-            <CardTitle>Line Chart - {getChartLabel()}</CardTitle>
-            <CardDescription>{getTimeRangeLabel()}</CardDescription>
+            <CardTitle className="text-lg md:text-xl">Line Chart - {getChartLabel()}</CardTitle>
+            <CardDescription className="text-xs md:text-sm">{getTimeRangeLabel()}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={chartConfig} className="h-[300px] w-full">
@@ -726,8 +727,8 @@ const Reports = () => {
         {/* Bar Chart */}
         <Card>
           <CardHeader>
-            <CardTitle>Bar Chart - {getChartLabel()}</CardTitle>
-            <CardDescription>{getTimeRangeLabel()}</CardDescription>
+            <CardTitle className="text-lg md:text-xl">Bar Chart - {getChartLabel()}</CardTitle>
+            <CardDescription className="text-xs md:text-sm">{getTimeRangeLabel()}</CardDescription>
           </CardHeader>
           <CardContent>
             <ChartContainer config={chartConfig} className="h-[300px] w-full">
@@ -783,8 +784,8 @@ const Reports = () => {
         {/* Pie Chart */}
         <Card className="flex flex-col">
           <CardHeader className="items-center pb-0">
-            <CardTitle>Distribution Chart - {getChartLabel()}</CardTitle>
-            <CardDescription>{getTimeRangeLabel()}</CardDescription>
+            <CardTitle className="text-lg md:text-xl">Distribution Chart - {getChartLabel()}</CardTitle>
+            <CardDescription className="text-xs md:text-sm">{getTimeRangeLabel()}</CardDescription>
           </CardHeader>
           <CardContent className="flex-1 pb-0">
             <ChartContainer

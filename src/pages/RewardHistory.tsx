@@ -394,18 +394,20 @@ const filteredRewards = React.useMemo(() => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-lg text-muted-foreground">Loading reward claims...</p>
+      <div className="p-4 md:p-6 lg:p-8">
+        <div className="flex items-center justify-center h-64">
+          <p className="text-sm md:text-lg text-muted-foreground">Loading reward claims...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 md:mb-6">
+    <div className="p-4 md:p-6 lg:p-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 mb-4 md:mb-6">
         <div>
           <h1 className="text-xl md:text-2xl font-bold">Reward History</h1>
-          <p className="text-sm md:text-base text-muted-foreground mt-1">Track and analyze reward distribution</p>
+          <p className="text-xs md:text-sm text-muted-foreground mt-1">Track and analyze reward distribution</p>
         </div>
       </div>
       
@@ -549,16 +551,16 @@ const filteredRewards = React.useMemo(() => {
       {/* Analytics Table */}
       <div className="bg-card border border-border rounded-lg overflow-hidden mb-8">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[900px]">
             <thead>
               <tr className="bg-muted border-b border-border">
-                <th className="text-left px-6 py-4 font-semibold text-sm">Reward Code</th>
-                <th className="text-right px-6 py-4 font-semibold text-sm">Pool</th>
-                <th className="text-center px-6 py-4 font-semibold text-sm">Status</th>
-                <th className="text-left px-6 py-4 font-semibold text-sm">Created</th>
-                <th className="text-right px-6 py-4 font-semibold text-sm">Total Claimed</th>
-                <th className="text-center px-6 py-4 font-semibold text-sm">Claimers</th>
-                <th className="text-right px-6 py-4 font-semibold text-sm">Time to First Claim</th>
+                <th className="text-left px-4 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Reward Code</th>
+                <th className="text-right px-4 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Pool</th>
+                <th className="text-center px-4 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Status</th>
+                <th className="text-left px-4 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Created</th>
+                <th className="text-right px-4 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Total Claimed</th>
+                <th className="text-center px-4 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Claimers</th>
+                <th className="text-right px-4 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Time to First Claim</th>
               </tr>
             </thead>
         <tbody>
@@ -617,10 +619,10 @@ const filteredRewards = React.useMemo(() => {
                 key={r.id || idx}
                 className="border-b border-border hover:bg-muted/50 transition-colors"
               >
-                <td className="px-6 py-4 align-middle font-semibold text-sm">{r.secretCode}</td>
-                <td className="px-6 py-4 align-middle text-sm text-right">₱{(r.pool || 0).toLocaleString()}</td>
-                <td className="px-6 py-4 align-middle text-center">
-                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
+                <td className="px-4 md:px-6 py-3 md:py-4 align-middle font-semibold text-xs md:text-sm whitespace-nowrap">{r.secretCode}</td>
+                <td className="px-4 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right whitespace-nowrap">₱{(r.pool || 0).toLocaleString()}</td>
+                <td className="px-4 md:px-6 py-3 md:py-4 align-middle text-center">
+                  <span className={`inline-flex items-center px-2 md:px-3 py-1 rounded-full text-xs font-semibold ${
                     status === 'active' ? 'bg-green-100 text-green-700' :
                     status === 'expired' ? 'bg-red-100 text-red-700' :
                     'bg-gray-100 text-gray-700'
@@ -628,7 +630,7 @@ const filteredRewards = React.useMemo(() => {
                     {status.charAt(0).toUpperCase() + status.slice(1)}
                   </span>
                 </td>
-                <td className="px-6 py-4 align-middle text-sm">
+                <td className="px-4 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm whitespace-nowrap">
                   {r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-US', { 
                     month: 'short', 
                     day: 'numeric', 
@@ -637,9 +639,9 @@ const filteredRewards = React.useMemo(() => {
                     minute: '2-digit'
                   }) : "-"}
                 </td>
-                <td className="px-6 py-4 align-middle text-sm text-right font-semibold text-green-600">₱{totalClaimed.toLocaleString()}</td>
-                <td className="px-6 py-4 align-middle text-sm text-center">{claimers}</td>
-                <td className="px-6 py-4 align-middle text-sm text-right">{timeToFirst !== null ? `${Math.round(timeToFirst)}s` : '-'}</td>
+                <td className="px-4 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right font-semibold text-green-600 whitespace-nowrap">₱{totalClaimed.toLocaleString()}</td>
+                <td className="px-4 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-center">{claimers}</td>
+                <td className="px-4 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right whitespace-nowrap">{timeToFirst !== null ? `${Math.round(timeToFirst)}s` : '-'}</td>
               </tr>
             );
           })}
@@ -687,65 +689,69 @@ const filteredRewards = React.useMemo(() => {
       )}
 
       {/* Leaderboards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <div>
-          <h3 className="font-bold text-lg mb-4">Top Claimers</h3>
+          <h3 className="font-bold text-base md:text-lg mb-3 md:mb-4">Top Claimers</h3>
           <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-muted border-b border-border">
-                  <th className="text-left px-6 py-4 font-semibold text-sm">User</th>
-                  <th className="text-right px-6 py-4 font-semibold text-sm">Total Claimed</th>
-                  <th className="text-center px-6 py-4 font-semibold text-sm">Claims</th>
-                </tr>
-              </thead>
-              <tbody>
-              {topClaimers.map((u, idx) => {
-                const member = members.find(m => m.id === u.userId);
-                return (
-                  <tr key={u.userId} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                    <td className="px-6 py-4 align-middle text-sm font-medium">{member ? member.name : u.userId}</td>
-                    <td className="px-6 py-4 align-middle text-sm text-right font-semibold text-green-600">₱{(u.total || 0).toLocaleString()}</td>
-                    <td className="px-6 py-4 align-middle text-sm text-center">{u.count || 0}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[400px]">
+                <thead>
+                  <tr className="bg-muted border-b border-border">
+                    <th className="text-left px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">User</th>
+                    <th className="text-right px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Total Claimed</th>
+                    <th className="text-center px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Claims</th>
+                  </tr>
+                </thead>
+                <tbody>
+                {topClaimers.map((u, idx) => {
+                  const member = members.find(m => m.id === u.userId);
+                  return (
+                    <tr key={u.userId} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
+                      <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm font-medium truncate max-w-[120px] md:max-w-none">{member ? member.name : u.userId}</td>
+                      <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right font-semibold text-green-600 whitespace-nowrap">₱{(u.total || 0).toLocaleString()}</td>
+                      <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-center">{u.count || 0}</td>
                   </tr>
                 );
               })}
-            </tbody>
+              </tbody>
             </table>
+            </div>
             {topClaimers.length === 0 && (
-              <div className="text-center py-8">
-                <p className="text-muted-foreground text-sm">No claimers yet.</p>
+              <div className="text-center py-6 md:py-8">
+                <p className="text-muted-foreground text-xs md:text-sm">No claimers yet.</p>
               </div>
             )}
           </div>
         </div>
         <div>
-          <h3 className="font-bold text-lg mb-4">Fastest Claimers (≥3 claims)</h3>
+          <h3 className="font-bold text-base md:text-lg mb-3 md:mb-4">Fastest Claimers (≥3 claims)</h3>
           <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-muted border-b border-border">
-                  <th className="text-left px-6 py-4 font-semibold text-sm">User</th>
-                  <th className="text-right px-6 py-4 font-semibold text-sm">Avg. Time to Claim</th>
-                  <th className="text-center px-6 py-4 font-semibold text-sm">Claims</th>
-                </tr>
-              </thead>
-              <tbody>
-              {fastestClaimers.map((u, idx) => {
-                const member = members.find(m => m.id === u.userId);
-                return (
-                  <tr key={u.userId} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                    <td className="px-6 py-4 align-middle text-sm font-medium">{member ? member.name : u.userId}</td>
-                    <td className="px-6 py-4 align-middle text-sm text-right font-semibold text-blue-600">{Math.round((u.avgTime || 0) / 1000)}s</td>
-                    <td className="px-6 py-4 align-middle text-sm text-center">{u.count || 0}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[400px]">
+                <thead>
+                  <tr className="bg-muted border-b border-border">
+                    <th className="text-left px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">User</th>
+                    <th className="text-right px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Avg. Time to Claim</th>
+                    <th className="text-center px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Claims</th>
+                  </tr>
+                </thead>
+                <tbody>
+                {fastestClaimers.map((u, idx) => {
+                  const member = members.find(m => m.id === u.userId);
+                  return (
+                    <tr key={u.userId} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
+                      <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm font-medium truncate max-w-[120px] md:max-w-none">{member ? member.name : u.userId}</td>
+                      <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right font-semibold text-blue-600 whitespace-nowrap">{Math.round((u.avgTime || 0) / 1000)}s</td>
+                      <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-center">{u.count || 0}</td>
                   </tr>
                 );
               })}
-            </tbody>
+              </tbody>
             </table>
+            </div>
             {fastestClaimers.length === 0 && (
-              <div className="text-center py-8">
-                <p className="text-muted-foreground text-sm">No eligible claimers yet (minimum 3 claims required).</p>
+              <div className="text-center py-6 md:py-8">
+                <p className="text-muted-foreground text-xs md:text-sm">No eligible claimers yet (minimum 3 claims required).</p>
               </div>
             )}
           </div>
@@ -769,24 +775,24 @@ const filteredRewards = React.useMemo(() => {
           </div>
 
           {filteredRewardClaims.length === 0 ? (
-            <div className="bg-card border border-border rounded-lg text-center py-12">
-              <p className="text-lg text-muted-foreground">No reward claims found.</p>
-              <p className="text-sm text-muted-foreground mt-2">Claims will appear here when users claim rewards.</p>
+            <div className="bg-card border border-border rounded-lg text-center py-8 md:py-12">
+              <p className="text-base md:text-lg text-muted-foreground">No reward claims found.</p>
+              <p className="text-xs md:text-sm text-muted-foreground mt-2">Claims will appear here when users claim rewards.</p>
             </div>
           ) : (
             <div className="bg-card border border-border rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[1000px]">
                   <thead>
                     <tr className="bg-muted border-b border-border">
-                      <th className="text-left px-6 py-4 font-semibold text-sm">User Name</th>
-                      <th className="text-left px-6 py-4 font-semibold text-sm">Email</th>
-                      <th className="text-left px-6 py-4 font-semibold text-sm">Reward Code</th>
-                      <th className="text-right px-6 py-4 font-semibold text-sm">Claim Amount</th>
-                      <th className="text-right px-6 py-4 font-semibold text-sm">Pool Before</th>
-                      <th className="text-right px-6 py-4 font-semibold text-sm">Pool After</th>
-                      <th className="text-left px-6 py-4 font-semibold text-sm">Claimed At</th>
-                      <th className="text-right px-6 py-4 font-semibold text-sm">Time to Claim</th>
+                      <th className="text-left px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">User Name</th>
+                      <th className="text-left px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Email</th>
+                      <th className="text-left px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Reward Code</th>
+                      <th className="text-right px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Claim Amount</th>
+                      <th className="text-right px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Pool Before</th>
+                      <th className="text-right px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Pool After</th>
+                      <th className="text-left px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Claimed At</th>
+                      <th className="text-right px-3 md:px-6 py-3 md:py-4 font-semibold text-xs md:text-sm whitespace-nowrap">Time to Claim</th>
                     </tr>
                   </thead>
                   <tbody>

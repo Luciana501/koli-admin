@@ -6,6 +6,10 @@ admin.initializeApp();
 // Import the expireRewards function
 const { expireRewardCodes, expireRewardCodesHttp } = require('./expireRewards');
 
+// Import the deleteUser function
+const { deleteUserAccount } = require('./deleteUser');
+
 // Export the functions
 exports.expireRewardCodes = expireRewardCodes;
 exports.expireRewardCodesHttp = expireRewardCodesHttp;
+exports.deleteUserAccount = deleteUserAccount;

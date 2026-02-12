@@ -129,23 +129,24 @@ const KYC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header Section */}
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">KYC Verification</h1>
-        <p className="text-base text-muted-foreground">
-          Review and validate user identity verification requests
-        </p>
-      </div>
-
-      {/* Pending KYC Applications */}
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Pending Applications</h2>
-          <div className="px-3 py-1.5 bg-amber-500/10 text-amber-600 rounded-full text-sm font-medium">
-            {pendingKYC.length} Pending
-          </div>
+    <div className="p-4 md:p-6 lg:p-8">
+      <div className="space-y-6">
+        {/* Header Section */}
+        <div className="space-y-2">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">KYC Verification</h1>
+          <p className="text-sm md:text-base text-muted-foreground">
+            Review and validate user identity verification requests
+          </p>
         </div>
+
+        {/* Pending KYC Applications */}
+        <div className="space-y-5">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg md:text-xl font-semibold">Pending Applications</h2>
+            <div className="px-3 py-1.5 bg-amber-500/10 text-amber-600 rounded-full text-xs md:text-sm font-medium whitespace-nowrap">
+              {pendingKYC.length} Pending
+            </div>
+          </div>
 
         {pendingKYC.length === 0 ? (
           <div className="bg-gradient-to-br from-muted/30 to-muted/10 border-2 border-dashed border-border rounded-xl p-12 text-center">
@@ -157,9 +158,9 @@ const KYC = () => {
               <ul className="divide-y divide-border">
                 {paginatedPending.map((user, index) => (
                   <li key={user.id} className="hover:bg-muted/40 transition-colors">
-                    <div className="flex items-center gap-4 p-5">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 p-4 sm:p-5">
                       {/* Number */}
-                      <div className="text-3xl font-thin opacity-30 tabular-nums min-w-[3rem]">
+                      <div className="hidden sm:block text-3xl font-thin opacity-30 tabular-nums min-w-[3rem]">
                         {String(startIndex + index + 1).padStart(2, '0')}
                       </div>
                       
@@ -201,7 +202,7 @@ const KYC = () => {
                       {/* View Button */}
                       <button
                         onClick={() => handleView(user)}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-sm font-medium flex-shrink-0"
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-sm font-medium flex-shrink-0 w-full sm:w-auto justify-center"
                       >
                         <IconEye className="h-4 w-4" />
                         View
@@ -227,21 +228,21 @@ const KYC = () => {
 
       {/* KYC History */}
       <div className="space-y-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Verification History</h2>
-          <div className="px-3 py-1.5 bg-muted text-muted-foreground rounded-full text-sm font-medium">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <h2 className="text-lg md:text-xl font-semibold">Verification History</h2>
+          <div className="px-3 py-1.5 bg-muted text-muted-foreground rounded-full text-xs md:text-sm font-medium whitespace-nowrap">
             {processedKYC.length} Processed
           </div>
         </div>
         
         {/* Filter Feature */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
           <div className="flex items-center gap-2">
             <IconFilter className="h-5 w-5 text-muted-foreground" />
-            <label className="text-sm font-medium text-foreground">Filter by Status:</label>
+            <label className="text-sm font-medium text-foreground whitespace-nowrap">Filter by Status:</label>
           </div>
           <Select value={kycStatusFilter} onValueChange={setKycStatusFilter}>
-            <SelectTrigger className="w-[180px] h-10">
+            <SelectTrigger className="w-full sm:w-[180px] h-10">
               <SelectValue placeholder="All Statuses" />
             </SelectTrigger>
             <SelectContent>
@@ -262,9 +263,9 @@ const KYC = () => {
               <ul className="divide-y divide-border">
                 {paginatedHistory.map((user, index) => (
                   <li key={user.id} className="hover:bg-muted/40 transition-colors">
-                    <div className="flex items-center gap-4 p-5">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 p-4 sm:p-5">
                       {/* Number */}
-                      <div className="text-3xl font-thin opacity-30 tabular-nums min-w-[3rem]">
+                      <div className="hidden sm:block text-3xl font-thin opacity-30 tabular-nums min-w-[3rem]">
                         {String(historyStartIndex + index + 1).padStart(2, '0')}
                       </div>
                       
@@ -304,7 +305,7 @@ const KYC = () => {
                       </div>
                       
                       {/* Status Badge */}
-                      <span className={`inline-flex px-3 py-1.5 rounded-full text-sm font-semibold flex-shrink-0 ${
+                      <span className={`inline-flex px-3 py-1.5 rounded-full text-xs md:text-sm font-semibold flex-shrink-0 ${
                         user.kycStatus === "APPROVED" 
                           ? "bg-green-500/15 text-green-600" 
                           : "bg-red-500/15 text-red-600"
@@ -315,7 +316,7 @@ const KYC = () => {
                       {/* View Button */}
                       <button
                         onClick={() => handleView(user)}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-sm font-medium flex-shrink-0"
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-sm font-medium flex-shrink-0 w-full sm:w-auto justify-center"
                       >
                         <IconEye className="h-4 w-4" />
                         View
@@ -343,7 +344,7 @@ const KYC = () => {
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
           <DialogHeader className="border-b pb-4">
-            <DialogTitle className="text-2xl font-bold">KYC Application Details</DialogTitle>
+            <DialogTitle className="text-xl md:text-2xl font-bold">KYC Application Details</DialogTitle>
           </DialogHeader>
           
           {selectedUser && (
@@ -445,11 +446,11 @@ const KYC = () => {
 
               {/* Action Buttons */}
               {selectedUser.kycStatus === "PENDING" && (
-                <div className="flex items-center justify-end gap-3 pt-4 border-t">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 pt-4 border-t">
                   <button
                     onClick={() => handleReject(selectedUser.id)}
                     disabled={processingId === selectedUser.id}
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-red-500/10 text-red-600 hover:bg-red-500/20 transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 font-medium"
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-red-500/10 text-red-600 hover:bg-red-500/20 transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 font-medium w-full sm:w-auto"
                   >
                     <IconX className="h-5 w-5" />
                     Reject Application
@@ -457,7 +458,7 @@ const KYC = () => {
                   <button
                     onClick={() => handleApprove(selectedUser.id)}
                     disabled={processingId === selectedUser.id}
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-green-500/10 text-green-600 hover:bg-green-500/20 transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 font-medium"
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-green-500/10 text-green-600 hover:bg-green-500/20 transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100 font-medium w-full sm:w-auto"
                   >
                     <IconCheck className="h-5 w-5" />
                     Approve Application
@@ -468,6 +469,7 @@ const KYC = () => {
           )}
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 };

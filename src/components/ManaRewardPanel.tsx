@@ -342,12 +342,12 @@ const ManaRewardPanel = () => {
   const displayTotalPool = isExpired ? 0 : totalPool;
 
   return (
-    <div className="flex flex-col lg:flex-row lg:items-stretch gap-4 w-full">
+    <div className="flex flex-col lg:flex-row lg:items-stretch gap-4 w-full p-4 md:p-6 lg:p-8">
 
       {/* LEFT PANEL */}
       <div className="w-full lg:w-[340px] bg-card border border-border rounded-lg p-4 md:p-6 flex flex-col shadow-sm overflow-auto lg:shrink-0">
 
-          <h2 className="font-bold text-2xl mb-6 text-foreground">
+          <h2 className="font-bold text-xl md:text-2xl mb-4 md:mb-6 text-foreground">
             MANA Reward Control Panel
           </h2>
           <div className="flex flex-col gap-4 flex-grow">
@@ -492,7 +492,7 @@ const ManaRewardPanel = () => {
 
         {/* RIGHT PANEL */}
         <div className="flex-1 bg-card border border-border rounded-lg p-4 md:p-6 flex flex-col shadow-sm overflow-auto min-w-0">
-          <h2 className="font-bold text-2xl mb-6 text-foreground">
+          <h2 className="font-bold text-xl md:text-2xl mb-4 md:mb-6 text-foreground">
             Reward History
           </h2>
           <div className="flex flex-col gap-4 flex-grow">
@@ -514,7 +514,7 @@ const ManaRewardPanel = () => {
                   Filter by Status
                 </label>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white h-10">
+                  <SelectTrigger className="w-full sm:w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white h-10">
                     <SelectValue placeholder="All" />
                   </SelectTrigger>
                   <SelectContent>
@@ -532,21 +532,22 @@ const ManaRewardPanel = () => {
                   type="date"
                   value={dateFilter}
                   onChange={(e) => setDateFilter(e.target.value)}
-                  className="w-40 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-white h-10"
+                  className="w-full sm:w-40 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-white h-10"
                 />
               </div>
             </div>
             <div className="flex-grow overflow-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Pool</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Expires</TableHead>
-                  </TableRow>
-                </TableHeader>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="whitespace-nowrap">Code</TableHead>
+                      <TableHead className="whitespace-nowrap">Pool</TableHead>
+                      <TableHead className="whitespace-nowrap">Status</TableHead>
+                      <TableHead className="whitespace-nowrap">Created</TableHead>
+                      <TableHead className="whitespace-nowrap">Expires</TableHead>
+                    </TableRow>
+                  </TableHeader>
                 <TableBody>
                   {paginatedHistory.map((item, idx) => {
                     // Compute real-time status for display
@@ -573,7 +574,8 @@ const ManaRewardPanel = () => {
                     );
                   })}
                 </TableBody>
-              </Table>
+                </Table>
+              </div>
             </div>
             <Pagination>
               <PaginationContent>

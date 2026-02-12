@@ -63,6 +63,9 @@ const Withdrawals = () => {
   const [returnGroup, setReturnGroup] = useState<GroupedWithdrawal | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
+  const [odhexViewModalOpen, setOdhexViewModalOpen] = useState(false);
+  const [selectedOdhexWithdrawal, setSelectedOdhexWithdrawal] = useState<ODHexWithdrawal | null>(null);
+  const [odhexRejectReason, setOdhexRejectReason] = useState("");
   
   // Filter states
   const [searchTerm, setSearchTerm] = useState("");
@@ -718,19 +721,19 @@ const Withdrawals = () => {
   }
 
   return (
-    <div>
+    <div className="p-4 md:p-6 lg:p-8">
       {connectionError && (
-        <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+        <div className="mb-4 p-3 md:p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
           <div className="flex items-start gap-3">
             <IconX className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h3 className="font-semibold text-red-800 dark:text-red-300 mb-1">Connection Issue</h3>
-              <p className="text-sm text-red-700 dark:text-red-400 mb-2">
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold text-sm md:text-base text-red-800 dark:text-red-300 mb-1">Connection Issue</h3>
+              <p className="text-xs md:text-sm text-red-700 dark:text-red-400 mb-2">
                 Unable to establish real-time connection to the database. Data may not be up to date.
               </p>
               <button
                 onClick={() => window.location.reload()}
-                className="text-sm font-medium text-red-600 dark:text-red-400 hover:underline"
+                className="text-xs md:text-sm font-medium text-red-600 dark:text-red-400 hover:underline"
               >
                 Reload Page
               </button>
@@ -902,10 +905,10 @@ const Withdrawals = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-4 border-b border-border">
+      <div className="flex gap-2 mb-4 border-b border-border overflow-x-auto">
         <button
           onClick={() => setActiveTab("pending")}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+          className={`px-3 md:px-4 py-2 text-xs md:text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
             activeTab === "pending"
               ? "border-primary text-primary"
               : "border-transparent text-muted-foreground hover:text-foreground"
@@ -915,7 +918,7 @@ const Withdrawals = () => {
         </button>
         <button
           onClick={() => setActiveTab("history")}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+          className={`px-3 md:px-4 py-2 text-xs md:text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
             activeTab === "history"
               ? "border-primary text-primary"
               : "border-transparent text-muted-foreground hover:text-foreground"
@@ -926,7 +929,7 @@ const Withdrawals = () => {
         {!isFinanceAdmin && (
           <button
             onClick={() => setActiveTab("returns")}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            className={`px-3 md:px-4 py-2 text-xs md:text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
               activeTab === "returns"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -937,7 +940,7 @@ const Withdrawals = () => {
         )}
         <button
           onClick={() => setActiveTab("odhex")}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+          className={`px-3 md:px-4 py-2 text-xs md:text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
             activeTab === "odhex"
               ? "border-primary text-primary"
               : "border-transparent text-muted-foreground hover:text-foreground"
@@ -1480,39 +1483,17 @@ const Withdrawals = () => {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-center gap-2">
-                      {withdrawal.status === "pending" && (
-                        <>
-                          <button
-                            onClick={() => handleApproveODHex(withdrawal)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-md text-xs font-medium hover:bg-green-700 transition-colors"
-                            title="Complete withdrawal"
-                          >
-                            <IconCheck className="h-3 w-3" />
-                            Complete
-                          </button>
-                          <button
-                            onClick={() => {
-                              const reason = prompt("Enter rejection reason:");
-                              if (reason) handleRejectODHex(withdrawal, reason);
-                            }}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-md text-xs font-medium hover:bg-red-700 transition-colors"
-                            title="Reject withdrawal"
-                          >
-                            <IconX className="h-3 w-3" />
-                            Reject
-                          </button>
-                        </>
-                      )}
-                      {withdrawal.status === "rejected" && withdrawal.rejectionReason && (
-                        <div className="text-xs text-red-600 max-w-[200px] truncate" title={withdrawal.rejectionReason}>
-                          {withdrawal.rejectionReason}
-                        </div>
-                      )}
-                      {withdrawal.status === "completed" && withdrawal.processedAt && (
-                        <div className="text-xs text-muted-foreground">
-                          {new Date(withdrawal.processedAt).toLocaleDateString()}
-                        </div>
-                      )}
+                      <button
+                        onClick={() => {
+                          setSelectedOdhexWithdrawal(withdrawal);
+                          setOdhexViewModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs font-medium hover:bg-blue-700 transition-colors"
+                        title="View withdrawal details"
+                      >
+                        <IconEye className="h-3 w-3" />
+                        View
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -1647,8 +1628,8 @@ const Withdrawals = () => {
       <Dialog open={detailsModalOpen} onOpenChange={setDetailsModalOpen}>
         <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Withdrawal Request Details</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-lg md:text-xl">Withdrawal Request Details</DialogTitle>
+            <DialogDescription className="text-xs md:text-sm">
               Breakdown of all withdrawals in this request
             </DialogDescription>
           </DialogHeader>
@@ -1656,8 +1637,8 @@ const Withdrawals = () => {
           {selectedGroup && (
             <div className="space-y-4">
               {/* User Info */}
-              <div className="bg-muted/50 p-4 rounded-lg">
-                <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-muted/50 p-3 md:p-4 rounded-lg">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                   <div>
                     <p className="text-muted-foreground">User</p>
                     <p className="font-medium">{selectedGroup.userName}</p>
@@ -1686,9 +1667,9 @@ const Withdrawals = () => {
               </div>
 
               {/* Amount Breakdown */}
-              <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
-                <h3 className="font-semibold text-sm mb-3 text-blue-900">Amount Breakdown</h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-blue-50 border border-blue-200 p-3 md:p-4 rounded-lg">
+                <h3 className="font-semibold text-xs md:text-sm mb-3 text-blue-900">Amount Breakdown</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                   <div>
                     <p className="text-blue-700">Gross Amount</p>
                     <p className="font-bold text-blue-900">₱{(selectedGroup.withdrawals[0].grossAmount || selectedGroup.amount).toLocaleString()}</p>
@@ -1842,6 +1823,158 @@ const Withdrawals = () => {
                   ))}
                 </div>
               </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ODHex Withdrawal View Modal */}
+      <Dialog open={odhexViewModalOpen} onOpenChange={(open) => {
+        setOdhexViewModalOpen(open);
+        if (!open) {
+          setSelectedOdhexWithdrawal(null);
+          setOdhexRejectReason("");
+        }
+      }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg md:text-xl">ODHex Withdrawal Details</DialogTitle>
+            <DialogDescription className="text-xs md:text-sm">
+              Review withdrawal information and take action
+            </DialogDescription>
+          </DialogHeader>
+          {selectedOdhexWithdrawal && (
+            <div className="space-y-4">
+              {/* User Information */}
+              <div className="bg-muted/50 p-3 md:p-4 rounded-lg">
+                <h3 className="font-semibold mb-3 text-sm md:text-base">User Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="font-medium text-muted-foreground">Email:</span>
+                    <div className="mt-1">{selectedOdhexWithdrawal.userEmail}</div>
+                  </div>
+                  <div>
+                    <span className="font-medium text-muted-foreground">User ID:</span>
+                    <div className="mt-1 font-mono text-xs">{selectedOdhexWithdrawal.userId}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Withdrawal Details */}
+              <div className="bg-muted/50 p-3 md:p-4 rounded-lg">
+                <h3 className="font-semibold mb-3 text-sm md:text-base">Withdrawal Details</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="font-medium text-muted-foreground">Amount:</span>
+                    <div className="mt-1 text-lg font-bold">₱{selectedOdhexWithdrawal.amount.toLocaleString()}</div>
+                    <div className="text-xs text-muted-foreground">{selectedOdhexWithdrawal.amount.toLocaleString()} KOLI</div>
+                  </div>
+                  <div>
+                    <span className="font-medium text-muted-foreground">Status:</span>
+                    <div className="mt-1">
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        selectedOdhexWithdrawal.status === "pending" 
+                          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                          : selectedOdhexWithdrawal.status === "completed"
+                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                          : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                      }`}>
+                        {selectedOdhexWithdrawal.status}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="font-medium text-muted-foreground">Method:</span>
+                    <div className="mt-1 capitalize">{selectedOdhexWithdrawal.method}</div>
+                  </div>
+                  <div>
+                    <span className="font-medium text-muted-foreground">Provider:</span>
+                    <div className="mt-1 font-medium">{selectedOdhexWithdrawal.provider}</div>
+                  </div>
+                  <div>
+                    <span className="font-medium text-muted-foreground">Account Details:</span>
+                    <div className="mt-1 font-mono text-xs">{selectedOdhexWithdrawal.accountDetails}</div>
+                  </div>
+                  <div>
+                    <span className="font-medium text-muted-foreground">Requested:</span>
+                    <div className="mt-1 text-xs">
+                      {new Date(selectedOdhexWithdrawal.requestedAt).toLocaleString()}
+                    </div>
+                  </div>
+                  {selectedOdhexWithdrawal.processedAt && (
+                    <div>
+                      <span className="font-medium text-muted-foreground">Processed:</span>
+                      <div className="mt-1 text-xs">
+                        {new Date(selectedOdhexWithdrawal.processedAt).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+                  {selectedOdhexWithdrawal.processedBy && (
+                    <div>
+                      <span className="font-medium text-muted-foreground">Processed By:</span>
+                      <div className="mt-1 text-xs">{selectedOdhexWithdrawal.processedBy}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Rejection Reason (if rejected) */}
+              {selectedOdhexWithdrawal.status === "rejected" && selectedOdhexWithdrawal.rejectionReason && (
+                <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-200 dark:border-red-800">
+                  <h3 className="font-semibold text-red-800 dark:text-red-300 mb-2">Rejection Reason</h3>
+                  <p className="text-sm text-red-700 dark:text-red-400">{selectedOdhexWithdrawal.rejectionReason}</p>
+                </div>
+              )}
+
+              {/* Action Buttons (only if pending) */}
+              {selectedOdhexWithdrawal.status === "pending" && (
+                <div className="border-t pt-4 space-y-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      onClick={async () => {
+                        await handleApproveODHex(selectedOdhexWithdrawal);
+                        setOdhexViewModalOpen(false);
+                        setSelectedOdhexWithdrawal(null);
+                      }}
+                      className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 transition-colors"
+                    >
+                      <IconCheck className="h-4 w-4" />
+                      Complete Withdrawal
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Rejection Reason</label>
+                    <Textarea
+                      value={odhexRejectReason}
+                      onChange={(e) => setOdhexRejectReason(e.target.value)}
+                      placeholder="Enter reason for rejection..."
+                      className="min-h-[80px]"
+                    />
+                    <button
+                      onClick={async () => {
+                        if (!odhexRejectReason.trim()) {
+                          toast({
+                            title: "Error",
+                            description: "Please enter a rejection reason.",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
+                        await handleRejectODHex(selectedOdhexWithdrawal, odhexRejectReason);
+                        setOdhexViewModalOpen(false);
+                        setSelectedOdhexWithdrawal(null);
+                        setOdhexRejectReason("");
+                      }}
+                      disabled={!odhexRejectReason.trim()}
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <IconX className="h-4 w-4" />
+                      Reject Withdrawal
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>

@@ -3,6 +3,7 @@ import { getAuth } from "firebase/auth";
 import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getAnalytics } from "firebase/analytics";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCBZLgXkQCJAi9kHlQQ-XLnKXx8wEP0Rjo",
@@ -35,6 +36,8 @@ try {
 export const auth = getAuth(app);
 export { db };
 export const storage = getStorage(app);
+// Initialize functions with the correct region (us-central1 is default)
+export const functions = getFunctions(app, 'us-central1');
 export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
 
 export default app;

@@ -146,7 +146,7 @@ const Donations = () => {
 
   if (loading) {
     return (
-      <div>
+      <div className="p-4 md:p-6 lg:p-8">
         <div className="flex items-center justify-center h-64">
           <p className="text-muted-foreground">Loading donations...</p>
         </div>
@@ -155,20 +155,20 @@ const Donations = () => {
   }
 
   return (
-    <div className="space-y-6 md:space-y-8">
+    <div className="space-y-6 md:space-y-8 p-4 md:p-6 lg:p-8">
       {/* Header Section */}
       <div className="space-y-2">
-        <h1 className="text-xl md:text-3xl font-bold tracking-tight">Donation Management</h1>
-        <p className="text-sm md:text-base text-muted-foreground">
+        <h1 className="text-xl md:text-2xl lg:text-3xl font-bold tracking-tight">Donation Management</h1>
+        <p className="text-xs md:text-sm text-muted-foreground">
           Review and validate user donation submissions
         </p>
       </div>
 
       {/* Pending Donations Section */}
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Pending Approvals</h2>
-          <div className="px-3 py-1.5 bg-amber-500/10 text-amber-600 rounded-full text-sm font-medium">
+      <div className="space-y-4 md:space-y-5">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
+          <h2 className="text-lg md:text-xl font-semibold">Pending Approvals</h2>
+          <div className="px-3 py-1.5 bg-amber-500/10 text-amber-600 rounded-full text-xs md:text-sm font-medium whitespace-nowrap">
             {pendingDonations.length} Pending
           </div>
         </div>
@@ -181,57 +181,57 @@ const Donations = () => {
           <>
             <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[800px]">
                   <thead>
                     <tr className="border-b border-border bg-gradient-to-r from-muted/60 to-muted/30">
-                      <th className="text-left p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">User</th>
-                      <th className="text-left p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">Amount</th>
-                      <th className="text-left p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">Payment Method</th>
-                      <th className="text-left p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">Created Date</th>
-                      <th className="text-left p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">Receipt</th>
-                      <th className="text-center p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">Actions</th>
+                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">User</th>
+                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Amount</th>
+                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Payment Method</th>
+                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Created Date</th>
+                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Receipt</th>
+                      <th className="text-center p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                 <tbody>
                   {paginatedDonations.map((donation) => (
                     <tr key={donation.id} className="border-b border-border hover:bg-muted/40 transition-colors">
-                      <td className="p-4 md:p-5">
+                      <td className="p-3 md:p-4 lg:p-5">
                         <div className="space-y-1">
-                          <p className="font-semibold text-base">{donation.userName || "Loading..."}</p>
-                          <p className="text-xs text-muted-foreground">{donation.userEmail || donation.userId}</p>
+                          <p className="font-semibold text-sm md:text-base">{donation.userName || "Loading..."}</p>
+                          <p className="text-xs text-muted-foreground truncate max-w-[150px]">{donation.userEmail || donation.userId}</p>
                         </div>
                       </td>
-                      <td className="p-4 md:p-5">
-                        <span className="text-lg font-bold text-primary">
+                      <td className="p-3 md:p-4 lg:p-5">
+                        <span className="text-base md:text-lg font-bold text-primary whitespace-nowrap">
                           ₱{donation.donationAmount.toLocaleString()}
                         </span>
                       </td>
-                      <td className="p-4 md:p-5">
-                        <span className="px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-600 text-sm font-medium capitalize">
+                      <td className="p-3 md:p-4 lg:p-5">
+                        <span className="px-2 md:px-3 py-1 md:py-1.5 rounded-full bg-blue-500/10 text-blue-600 text-xs md:text-sm font-medium capitalize whitespace-nowrap">
                           {donation.paymentMethod}
                         </span>
                       </td>
-                      <td className="p-4 md:p-5 text-sm text-muted-foreground">
+                      <td className="p-3 md:p-4 lg:p-5 text-xs md:text-sm text-muted-foreground whitespace-nowrap">
                         {new Date(donation.createdAt).toLocaleDateString('en-US', { 
                           year: 'numeric', 
                           month: 'short', 
                           day: 'numeric' 
                         })}
                       </td>
-                      <td className="p-4 md:p-5">
+                      <td className="p-3 md:p-4 lg:p-5">
                         {donation.receiptURL ? (
                           <button
                             onClick={() => handleViewReceipt(donation)}
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-sm font-medium"
+                            className="inline-flex items-center gap-2 px-2 md:px-3 py-1.5 md:py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-xs md:text-sm font-medium whitespace-nowrap"
                           >
                             <IconEye className="h-4 w-4" />
                             View
                           </button>
                         ) : (
-                          <span className="text-muted-foreground text-sm italic">No receipt</span>
+                          <span className="text-muted-foreground text-xs md:text-sm italic">No receipt</span>
                         )}
                       </td>
-                      <td className="p-4 md:p-5">
+                      <td className="p-3 md:p-4 lg:p-5">
                         <div className="flex items-center justify-center gap-3">
                           <button
                             onClick={() => handleApprove(donation.id)}
@@ -294,10 +294,10 @@ const Donations = () => {
       </div>
 
       {/* History Section */}
-      <div className="space-y-5 mt-12">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">Donation History</h2>
-          <div className="px-3 py-1.5 bg-muted text-muted-foreground rounded-full text-sm font-medium">
+      <div className="space-y-4 md:space-y-5 mt-12">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
+          <h2 className="text-lg md:text-xl font-semibold">Donation History</h2>
+          <div className="px-3 py-1.5 bg-muted text-muted-foreground rounded-full text-xs md:text-sm font-medium whitespace-nowrap">
             {historyDonations.length} Processed
           </div>
         </div>
@@ -310,45 +310,45 @@ const Donations = () => {
           <>
             <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[800px]">
                   <thead>
                     <tr className="border-b border-border bg-gradient-to-r from-muted/60 to-muted/30">
-                      <th className="text-left p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">User</th>
-                      <th className="text-left p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">Amount</th>
-                      <th className="text-left p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">Payment Method</th>
-                      <th className="text-left p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">Created Date</th>
-                      <th className="text-left p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">Status</th>
-                      <th className="text-left p-4 md:p-5 text-sm font-semibold uppercase tracking-wide">Receipt</th>
+                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">User</th>
+                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Amount</th>
+                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Payment Method</th>
+                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Created Date</th>
+                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Status</th>
+                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Receipt</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedHistory.map((donation) => (
                       <tr key={donation.id} className="border-b border-border hover:bg-muted/40 transition-colors">
-                        <td className="p-4 md:p-5">
+                        <td className="p-3 md:p-4 lg:p-5">
                           <div className="space-y-1">
-                            <p className="font-semibold text-base">{donation.userName || "Loading..."}</p>
-                            <p className="text-xs text-muted-foreground">{donation.userEmail || donation.userId}</p>
+                            <p className="font-semibold text-sm md:text-base">{donation.userName || "Loading..."}</p>
+                            <p className="text-xs text-muted-foreground truncate max-w-[150px]">{donation.userEmail || donation.userId}</p>
                           </div>
                         </td>
-                        <td className="p-4 md:p-5">
-                          <span className="text-base font-semibold">
+                        <td className="p-3 md:p-4 lg:p-5">
+                          <span className="text-sm md:text-base font-semibold whitespace-nowrap">
                             ₱{donation.donationAmount.toLocaleString()}
                           </span>
                         </td>
-                        <td className="p-4 md:p-5">
-                          <span className="px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-600 text-sm font-medium capitalize">
+                        <td className="p-3 md:p-4 lg:p-5">
+                          <span className="px-2 md:px-3 py-1 md:py-1.5 rounded-full bg-blue-500/10 text-blue-600 text-xs md:text-sm font-medium capitalize whitespace-nowrap">
                             {donation.paymentMethod}
                           </span>
                         </td>
-                        <td className="p-4 md:p-5 text-sm text-muted-foreground">
+                        <td className="p-3 md:p-4 lg:p-5 text-xs md:text-sm text-muted-foreground whitespace-nowrap">
                           {new Date(donation.createdAt).toLocaleDateString('en-US', { 
                             year: 'numeric', 
                             month: 'short', 
                             day: 'numeric' 
                           })}
                         </td>
-                        <td className="p-4 md:p-5">
-                          <span className={`inline-flex px-3 py-1.5 rounded-full text-sm font-semibold ${
+                        <td className="p-3 md:p-4 lg:p-5">
+                          <span className={`inline-flex px-2 md:px-3 py-1 md:py-1.5 rounded-full text-xs font-semibold ${
                             ["approved", "active"].includes(donation.status)
                               ? "bg-green-500/15 text-green-600"
                               : donation.status === "rejected"
@@ -362,17 +362,17 @@ const Donations = () => {
                                 : "Pending"}
                           </span>
                         </td>
-                        <td className="p-4 md:p-5">
+                        <td className="p-3 md:p-4 lg:p-5">
                           {donation.receiptURL ? (
                             <button
                               onClick={() => handleViewReceipt(donation)}
-                              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-sm font-medium"
+                              className="inline-flex items-center gap-2 px-2 md:px-3 py-1.5 md:py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-xs md:text-sm font-medium whitespace-nowrap"
                             >
                               <IconEye className="h-4 w-4" />
                               View
                             </button>
                           ) : (
-                            <span className="text-muted-foreground text-sm italic">-</span>
+                            <span className="text-muted-foreground text-xs md:text-sm italic">-</span>
                           )}
                         </td>
                       </tr>

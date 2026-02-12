@@ -1,6 +1,7 @@
 import { collection, getDocs, doc, getDoc, updateDoc, addDoc, deleteDoc, query, where, orderBy, Timestamp, onSnapshot } from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
-import { db, storage } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, storage, functions, auth } from "@/lib/firebase";
 import { User, Withdrawal, Donation } from "@/types/admin";
 
 export interface ReportData {
@@ -912,11 +913,46 @@ export const updateUser = async (
 // Delete user
 export const deleteUser = async (userId: string): Promise<void> => {
   try {
-    const userRef = doc(db, "members", userId);
-    await deleteDoc(userRef);
-  } catch (error) {
+    // Ensure user is authenticated before calling the function
+    const currentUser = auth.currentUser;
+    console.log('Current user:', currentUser?.uid);
+    
+    if (!currentUser) {
+      throw new Error('You must be logged in to delete users');
+    }
+
+    // Get fresh ID token
+    const idToken = await currentUser.getIdToken(true);
+    console.log('Got ID token, length:', idToken.length);
+
+    // Call the Cloud Function to delete both Auth and Firestore data
+    const deleteUserAccount = httpsCallable(functions, 'deleteUserAccount');
+    console.log('Calling deleteUserAccount function for userId:', userId);
+    
+    const result = await deleteUserAccount({ userId });
+    console.log('User deleted successfully:', result.data);
+  } catch (error: any) {
     console.error("Error deleting user:", error);
-    throw error;
+    console.error("Error code:", error.code);
+    console.error("Error details:", error.details);
+    
+    // If Cloud Function is not deployed, fall back to Firestore-only deletion
+    if (error.code === 'functions/not-found') {
+      console.warn('Cloud function not found, deleting from Firestore only');
+      try {
+        const userRef = doc(db, "members", userId);
+        await deleteDoc(userRef);
+        console.log('User deleted from Firestore (Authentication account still exists)');
+        return;
+      } catch (firestoreError) {
+        console.error("Error deleting from Firestore:", firestoreError);
+        throw new Error('Failed to delete user from Firestore');
+      }
+    }
+    
+    // Provide more detailed error message
+    const errorMessage = error.message || 'Failed to delete user';
+    throw new Error(errorMessage);
   }
 };
 
