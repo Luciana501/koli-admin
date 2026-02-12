@@ -68,23 +68,23 @@ const UserModal: React.FC<UserModalProps> = ({
   if (!isOpen || !user) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
       <div
         className="absolute inset-0 bg-foreground/50"
         onClick={onClose}
       />
-      <div className="relative bg-card border border-border rounded-lg w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b border-border">
-          <h2 className="text-xl font-semibold">User Information</h2>
+      <div className="relative bg-card border border-border rounded-lg w-full max-w-sm sm:max-w-md md:max-w-2xl mx-auto max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-border gap-2">
+          <h2 className="text-base sm:text-lg md:text-xl font-semibold truncate">User Information</h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-md hover:bg-accent transition-colors"
+            className="p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0"
           >
-            <IconX className="h-5 w-5" />
+            <IconX className="h-4 w-4 sm:h-5 sm:w-5" />
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-sm font-medium text-muted-foreground">First Name</label>

@@ -589,7 +589,7 @@ const Reports = () => {
   };
 
   return (
-    <div className="h-full bg-background p-4 md:p-6 lg:p-8">
+    <div className="h-full bg-background">
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Reports</h1>

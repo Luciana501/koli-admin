@@ -26,6 +26,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
     email: "",
     phoneNumber: "",
     address: "",
+    password: "",
     donationAmount: "0",
     totalAsset: "0",
     kycStatus: "NOT_SUBMITTED" as "NOT_SUBMITTED" | "PENDING" | "APPROVED" | "REJECTED",
@@ -41,6 +42,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         email: user.email || "",
         phoneNumber: user.phoneNumber || "",
         address: user.address || "",
+        password: "",
         donationAmount: user.donationAmount?.toString() || "0",
         totalAsset: user.totalAsset?.toString() || "0",
         kycStatus: user.kycStatus || "NOT_SUBMITTED",
@@ -52,6 +54,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         email: "",
         phoneNumber: "",
         address: "",
+        password: "",
         donationAmount: "0",
         totalAsset: "0",
         kycStatus: "NOT_SUBMITTED",
@@ -80,6 +83,11 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
     if (!formData.address.trim()) {
       newErrors.address = "Address is required";
     }
+    if (mode === "create" && !formData.password.trim()) {
+      newErrors.password = "Password is required";
+    } else if (mode === "create" && formData.password.trim().length < 6) {
+      newErrors.password = "Password must be at least 6 characters";
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -104,6 +112,11 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         totalAsset: parseFloat(formData.totalAsset) || 0,
         kycStatus: formData.kycStatus,
       };
+
+      // Add password for create mode
+      if (mode === "create") {
+        (userData as any).password = formData.password.trim();
+      }
 
       await onSave(userData);
       onClose();
@@ -213,6 +226,24 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
               <p className="text-xs text-destructive">{errors.address}</p>
             )}
           </div>
+
+          {mode === "create" && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Password <span className="text-destructive">*</span>
+              </label>
+              <Input
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder="Enter password (min 6 characters)"
+                className={errors.password ? "border-destructive" : ""}
+              />
+              {errors.password && (
+                <p className="text-xs text-destructive">{errors.password}</p>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

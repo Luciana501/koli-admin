@@ -394,14 +394,14 @@ const filteredRewards = React.useMemo(() => {
 
   if (loading) {
     return (
-      <div className="p-4 md:p-6 lg:p-8 flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-64">
         <p className="text-lg text-muted-foreground">Loading reward claims...</p>
       </div>
     );
   }
 
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 md:mb-6">
         <div>
           <h1 className="text-xl md:text-2xl font-bold">Reward History</h1>
@@ -410,28 +410,28 @@ const filteredRewards = React.useMemo(() => {
       </div>
       
       {/* Tab Navigation */}
-      <div className="flex gap-4 mb-6">
+      <div className="flex gap-2 sm:gap-4 mb-6 overflow-x-auto">
         <button
           onClick={() => setActiveTab("analytics")}
-          className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition ${
+          className={`flex items-center gap-2 px-3 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold transition text-sm sm:text-base whitespace-nowrap ${
             activeTab === "analytics"
               ? "bg-primary text-primary-foreground"
               : "bg-card text-foreground hover:bg-muted border border-border"
           }`}
         >
           <IconGift size={20} />
-          Reward Analytics
+          <span className="hidden sm:inline">Reward </span>Analytics
         </button>
         <button
           onClick={() => setActiveTab("claims")}
-          className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition ${
+          className={`flex items-center gap-2 px-3 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold transition text-sm sm:text-base whitespace-nowrap ${
             activeTab === "claims"
               ? "bg-primary text-primary-foreground"
               : "bg-card text-foreground hover:bg-muted border border-border"
           }`}
         >
           <IconHistory size={20} />
-          Individual Claims ({rewardClaims.length})
+          <span className="hidden sm:inline">Individual </span>Claims ({rewardClaims.length})
         </button>
       </div>
 

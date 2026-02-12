@@ -138,3 +138,41 @@
 [class*="MuiCharts"] {
   background-color: transparent !important;
 }
+
+/* Mobile-first responsive improvements */
+@media (max-width: 640px) {
+  /* Ensure touch targets are at least 44px */
+  button, a, input[type="button"], input[type="submit"] {
+    min-height: 2.75rem;
+  }
+  
+  /* Improve table readability on mobile */
+  table {
+    font-size: 0.875rem;
+  }
+  
+  /* Better modal padding on mobile */
+  .fixed.inset-0 > div {
+    margin: 0.75rem;
+  }
+}
+
+/* Landscape mobile optimization */
+@media (max-width: 768px) and (orientation: landscape) {
+  /* Reduce padding on landscape */
+  .p-4 { padding: 0.5rem; }
+  .p-6 { padding: 0.75rem; }
+  .p-8 { padding: 1rem; }
+}
+
+/* Ensure proper scaling on all devices */
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+}
+
+/* Prevent double-tap zoom on buttons and links */
+a, button {
+  -webkit-touch-callout: none;
+}

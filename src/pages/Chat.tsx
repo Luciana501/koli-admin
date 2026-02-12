@@ -159,7 +159,7 @@ const Chat = () => {
 
   if (loading) {
     return (
-      <div className="p-4 md:p-6 lg:p-8">
+      <div>
         <div className="flex items-center justify-center h-64">
           <p className="text-muted-foreground">Loading chat...</p>
         </div>
@@ -168,7 +168,7 @@ const Chat = () => {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-2rem)] p-4 md:p-6 lg:p-8">
+    <div className="flex flex-col h-[calc(100svh-6.5rem)]">
       <div className="mb-4 flex items-center gap-3">
         <button
           onClick={() => navigate("/chat")}

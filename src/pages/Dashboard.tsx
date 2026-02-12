@@ -133,7 +133,7 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <div className="p-4 md:p-6 lg:p-8">
+      <div>
         <div className="flex items-center justify-center h-64">
           <p className="text-muted-foreground">Loading dashboard...</p>
         </div>
@@ -143,7 +143,7 @@ const Dashboard = () => {
 
   if (error) {
     return (
-      <div className="p-4 md:p-6 lg:p-8">
+      <div>
         <div className="flex flex-col items-center justify-center h-64 gap-4">
           <p className="text-destructive font-medium">Error loading dashboard</p>
           <p className="text-sm text-muted-foreground">{error}</p>
@@ -159,7 +159,7 @@ const Dashboard = () => {
   const currentLiability = 0; // TODO: Calculate sum of all matured 30% payout eligible amounts
 
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div>
       <div className="mb-6 md:mb-8">
         <h1 className="text-xl md:text-2xl font-bold">Dashboard</h1>
         <p className="text-sm md:text-base text-muted-foreground mt-1">

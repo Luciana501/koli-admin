@@ -231,7 +231,7 @@ const Users = () => {
     ? users.find(u => u.id === viewingUser.id) || viewingUser 
     : null;
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 md:mb-6">
         <div>
           <h1 className="text-xl md:text-2xl font-bold">Users</h1>
@@ -397,8 +397,67 @@ const Users = () => {
               <p className="text-muted-foreground">No users found</p>
             </div>
           ) : (
-          <table className="w-full min-w-[800px]">
-            <thead>
+          <>
+            {/* Mobile card view */}
+            <div className="md:hidden divide-y divide-border">
+              {paginatedUsers.map((user, index) => (
+                <div key={user.id} className="p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-sm truncate">
+                        {startIndex + index + 1}. {user.firstName} {user.lastName}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                    <div className="flex items-center gap-1 ml-2 shrink-0">
+                      <button
+                        onClick={() => handleViewUser(user)}
+                        className="inline-flex items-center p-1.5 rounded-md bg-primary/10 hover:bg-primary/20 text-primary transition-colors"
+                        aria-label="View user"
+                      >
+                        <IconEye className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleEditUser(user)}
+                        className="inline-flex items-center p-1.5 rounded-md bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 transition-colors"
+                        aria-label="Edit user"
+                      >
+                        <IconEdit className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteClick(user)}
+                        className="inline-flex items-center p-1.5 rounded-md bg-destructive/10 hover:bg-destructive/20 text-destructive transition-colors"
+                        aria-label="Delete user"
+                      >
+                        <IconTrash className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div>
+                      <span className="text-muted-foreground">Phone: </span>
+                      <span>{user.phoneNumber || "—"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Donation: </span>
+                      <span>₱{user.donationAmount.toLocaleString()}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Asset: </span>
+                      <span className="font-medium">₱{user.totalAsset.toLocaleString()}</span>
+                    </div>
+                    <div className="truncate">
+                      <span className="text-muted-foreground">Address: </span>
+                      <span>{user.address || "—"}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop table view */}
+            <table className="w-full min-w-[800px] hidden md:table">
+              <thead>
               <tr className="border-b border-border bg-muted/50">
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
                   #
@@ -480,6 +539,7 @@ const Users = () => {
               ))}
             </tbody>
           </table>
+          </>
           )}
         </div>
 

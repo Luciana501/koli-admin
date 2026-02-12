@@ -342,10 +342,10 @@ const ManaRewardPanel = () => {
   const displayTotalPool = isExpired ? 0 : totalPool;
 
   return (
-    <div className="flex items-stretch gap-4 w-full min-h-[calc(100vh-10rem)]">
+    <div className="flex flex-col lg:flex-row lg:items-stretch gap-4 w-full">
 
       {/* LEFT PANEL */}
-      <div className="w-[340px] bg-card border border-border rounded-lg p-6 flex flex-col shadow-sm overflow-auto shrink-0">
+      <div className="w-full lg:w-[340px] bg-card border border-border rounded-lg p-4 md:p-6 flex flex-col shadow-sm overflow-auto lg:shrink-0">
 
           <h2 className="font-bold text-2xl mb-6 text-foreground">
             MANA Reward Control Panel
@@ -491,12 +491,12 @@ const ManaRewardPanel = () => {
         </div>
 
         {/* RIGHT PANEL */}
-        <div className="flex-1 bg-card border border-border rounded-lg p-6 flex flex-col shadow-sm overflow-auto min-w-0">
+        <div className="flex-1 bg-card border border-border rounded-lg p-4 md:p-6 flex flex-col shadow-sm overflow-auto min-w-0">
           <h2 className="font-bold text-2xl mb-6 text-foreground">
             Reward History
           </h2>
           <div className="flex flex-col gap-4 flex-grow">
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex flex-col gap-2 flex-1">
                 <label className="text-sm font-medium text-muted-foreground">
                   Search History

@@ -146,7 +146,7 @@ const Donations = () => {
 
   if (loading) {
     return (
-      <div className="p-4 md:p-6 lg:p-8">
+      <div>
         <div className="flex items-center justify-center h-64">
           <p className="text-muted-foreground">Loading donations...</p>
         </div>
@@ -155,11 +155,11 @@ const Donations = () => {
   }
 
   return (
-    <div className="p-6 md:p-8 lg:p-10 space-y-8">
+    <div className="space-y-6 md:space-y-8">
       {/* Header Section */}
       <div className="space-y-2">
-        <h1 className="text-3xl md:text-4xl font-bold tracking-tight">Donation Management</h1>
-        <p className="text-base text-muted-foreground">
+        <h1 className="text-xl md:text-3xl font-bold tracking-tight">Donation Management</h1>
+        <p className="text-sm md:text-base text-muted-foreground">
           Review and validate user donation submissions
         </p>
       </div>

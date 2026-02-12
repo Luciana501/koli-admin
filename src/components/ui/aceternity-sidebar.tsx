@@ -79,7 +79,6 @@ export const SidebarBody = ({
   return (
     <>
       <DesktopSidebar className={className}>{children}</DesktopSidebar>
-      <MobileSidebar className={className}>{children}</MobileSidebar>
     </>
   );
 };
@@ -94,7 +93,7 @@ export const DesktopSidebar = ({
     <>
       <motion.div
         className={cn(
-          "h-full px-4 py-4 hidden md:flex md:flex-col bg-sidebar w-[280px] shrink-0 border-r border-sidebar-border",
+          "h-full px-4 py-4 flex flex-col bg-sidebar w-[280px] shrink-0 border-r border-sidebar-border",
           className
         )}
         animate={{
@@ -122,7 +121,7 @@ export const MobileSidebar = ({
         )}
         {...props}
       >
-        <div className="flex justify-end z-20 w-full">
+        <div className="flex justify-start z-20">
           <IconMenu2
             className="text-foreground"
             onClick={() => setOpen(!open)}
@@ -197,5 +196,18 @@ export const SidebarLink = ({
         {link.label}
       </motion.span>
     </a>
+  );
+};
+
+export const SidebarToggle = () => {
+  const { open, setOpen } = useSidebar();
+  return (
+    <button
+      onClick={() => setOpen(!open)}
+      className="flex items-center justify-center p-2 rounded-md hover:bg-accent transition-colors cursor-pointer"
+      aria-label="Toggle sidebar"
+    >
+      <IconMenu2 className="h-5 w-5 text-foreground" />
+    </button>
   );
 };

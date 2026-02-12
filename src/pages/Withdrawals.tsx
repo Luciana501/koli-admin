@@ -589,7 +589,7 @@ const Withdrawals = () => {
 
   if (loading) {
     return (
-      <div className="p-4 md:p-6 lg:p-8">
+      <div>
         <div className="flex items-center justify-center h-64">
           <p className="text-muted-foreground">Loading withdrawals...</p>
         </div>
@@ -598,7 +598,7 @@ const Withdrawals = () => {
   }
 
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 md:mb-6">
         <div>
           <h1 className="text-xl md:text-2xl font-bold">Withdrawals</h1>
