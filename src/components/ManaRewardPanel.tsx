@@ -9,8 +9,6 @@ import {
   writeBatch,
   onSnapshot,
   setDoc,
-  query,
-  where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
@@ -69,6 +67,14 @@ const ManaRewardPanel = () => {
   const [currentPage, setCurrentPage] = useState(1);
 
   const itemsPerPage = 10;
+
+  const normalizeCode = (value: string) => value.trim().toUpperCase();
+
+  const parseDateMs = (value?: string) => {
+    if (!value) return 0;
+    const ms = new Date(value).getTime();
+    return Number.isNaN(ms) ? 0 : ms;
+  };
 
   // --- Real-time re-render for expiration ---
   const [now, setNow] = useState(new Date());
@@ -147,34 +153,83 @@ const ManaRewardPanel = () => {
           await batch.commit();
         }
 
-        const hist: RewardHistoryItem[] = snapshot.docs
+        const histRaw: RewardHistoryItem[] = snapshot.docs
           .map((doc) => {
             const data = doc.data();
+            const normalizedCode = normalizeCode(
+              String(data.secretCode || data.code || data.activeCode || "")
+            );
+            const normalizedPool =
+              typeof data.pool === "number"
+                ? data.pool
+                : typeof data.totalPool === "number"
+                  ? data.totalPool
+                  : 0;
+            const normalizedCreatedAt =
+              typeof data.createdAt === "string"
+                ? data.createdAt
+                : data.createdAt?.toDate?.()?.toISOString?.() || "";
+            const normalizedExpiresAt =
+              typeof data.expiresAt === "string"
+                ? data.expiresAt
+                : data.expiresAt?.toDate?.()?.toISOString?.() || "";
+
             // Check expiration status in real-time on the client side
             let currentStatus = data.status;
-            if (data.status === "active" && data.expiresAt) {
-              const expires = new Date(data.expiresAt);
+            if (data.status === "active" && normalizedExpiresAt) {
+              const expires = new Date(normalizedExpiresAt);
               if (expires < now) {
                 currentStatus = "expired";
               }
             }
             return { 
               id: doc.id, 
-              ...data, 
+              ...data,
+              secretCode: normalizedCode,
+              code: normalizedCode,
+              activeCode: normalizedCode,
+              pool: normalizedPool,
+              totalPool: typeof data.totalPool === "number" ? data.totalPool : normalizedPool,
+              remainingPool: typeof data.remainingPool === "number" ? data.remainingPool : undefined,
+              createdAt: normalizedCreatedAt,
+              expiresAt: normalizedExpiresAt,
               status: currentStatus 
             } as RewardHistoryItem;
           })
           .sort((a, b) => {
-            const aTime = a.createdAt
-              ? new Date(a.createdAt).getTime()
-              : 0;
-            const bTime = b.createdAt
-              ? new Date(b.createdAt).getTime()
-              : 0;
+            const aTime = parseDateMs(a.createdAt);
+            const bTime = parseDateMs(b.createdAt);
             return bTime - aTime;
           });
 
-        setHistory(hist);
+        const dedupedByCode = new Map<string, RewardHistoryItem>();
+        histRaw.forEach((item) => {
+          const key = normalizeCode(item.secretCode || item.code || item.activeCode || "");
+          if (!key) return;
+
+          const existing = dedupedByCode.get(key);
+          if (!existing) {
+            dedupedByCode.set(key, item);
+            return;
+          }
+
+          const existingTime = parseDateMs(existing.createdAt);
+          const candidateTime = parseDateMs(item.createdAt);
+          if (candidateTime > existingTime) {
+            dedupedByCode.set(key, item);
+            return;
+          }
+
+          if (candidateTime === existingTime && existing.status !== "active" && item.status === "active") {
+            dedupedByCode.set(key, item);
+          }
+        });
+
+        const dedupedHistory = Array.from(dedupedByCode.values()).sort(
+          (a, b) => parseDateMs(b.createdAt) - parseDateMs(a.createdAt)
+        );
+
+        setHistory(dedupedHistory);
       }
     );
 
@@ -215,14 +270,38 @@ const ManaRewardPanel = () => {
     setLoading(true);
     setError("");
     try {
-      // Check if the code already exists in rewardsHistory
-      const existingCodeQuery = query(
-        collection(db, "rewardsHistory"),
-        where("secretCode", "==", inputCode)
-      );
-      const existingCodeSnapshot = await getDocs(existingCodeQuery);
-      
-      if (!existingCodeSnapshot.empty) {
+      const normalizedInputCode = normalizeCode(inputCode);
+      const poolValue = Number(inputPool);
+      const expirationAmount = Number(expirationValue);
+
+      if (!normalizedInputCode) {
+        setError("Please enter a reward code.");
+        setLoading(false);
+        return;
+      }
+
+      if (!Number.isFinite(poolValue) || poolValue <= 0) {
+        setError("Please enter a valid reward pool amount greater than 0.");
+        setLoading(false);
+        return;
+      }
+
+      if (!Number.isFinite(expirationAmount) || expirationAmount <= 0) {
+        setError("Please enter a valid expiration time greater than 0.");
+        setLoading(false);
+        return;
+      }
+
+      const allHistorySnapshot = await getDocs(collection(db, "rewardsHistory"));
+      const codeAlreadyExists = allHistorySnapshot.docs.some((docSnap) => {
+        const data = docSnap.data();
+        const existingCode = normalizeCode(
+          String(data.secretCode || data.code || data.activeCode || "")
+        );
+        return existingCode === normalizedInputCode;
+      });
+
+      if (codeAlreadyExists) {
         setError("This MANA code has already been used. Please enter a different code.");
         setLoading(false);
         return;
@@ -235,7 +314,7 @@ const ManaRewardPanel = () => {
 
       const expires = new Date(
         now.getTime() +
-          Number(expirationValue) * multiplier * 60 * 1000
+          expirationAmount * multiplier * 60 * 1000
       );
 
       let prevRemaining = 0;
@@ -246,19 +325,26 @@ const ManaRewardPanel = () => {
 
       if (docSnap.exists()) {
         const data = docSnap.data();
+        const existingActiveCode = normalizeCode(String(data.activeCode || ""));
+        if (existingActiveCode && existingActiveCode === normalizedInputCode) {
+          setError("This MANA code is already the active code.");
+          setLoading(false);
+          return;
+        }
+
         prevRemaining = data.remainingPool || 0;
         prevExpiresAt = data.expiresAt || "";
       }
 
-      let newTotalPool = Number(inputPool);
-      let newRemainingPool = Number(inputPool);
+      let newTotalPool = poolValue;
+      let newRemainingPool = poolValue;
       if (prevExpiresAt && new Date(prevExpiresAt) > now) {
         newTotalPool += prevRemaining;
         newRemainingPool += prevRemaining;
       }
 
       await setDoc(docRef, {
-        activeCode: inputCode,
+        activeCode: normalizedInputCode,
         totalPool: newTotalPool,
         remainingPool: newRemainingPool,
         createdAt: now.toISOString(),
@@ -267,8 +353,11 @@ const ManaRewardPanel = () => {
       });
 
       await addDoc(collection(db, "rewardsHistory"), {
-        secretCode: inputCode,
-        pool: Number(inputPool),
+        secretCode: normalizedInputCode,
+        code: normalizedInputCode,
+        pool: poolValue,
+        totalPool: poolValue,
+        remainingPool: poolValue,
         createdAt: now.toISOString(),
         expiresAt: expires.toISOString(),
         type: "mana",
@@ -342,7 +431,7 @@ const ManaRewardPanel = () => {
   const displayTotalPool = isExpired ? 0 : totalPool;
 
   return (
-    <div className="flex flex-col lg:flex-row lg:items-stretch gap-4 w-full p-4 md:p-6 lg:p-8">
+    <div className="flex flex-col lg:flex-row lg:items-stretch gap-3 md:gap-4 w-full p-2 sm:p-4 md:p-6 lg:p-8">
 
       {/* LEFT PANEL */}
       <div className="w-full lg:w-[340px] bg-card border border-border rounded-lg p-4 md:p-6 flex flex-col shadow-sm overflow-auto lg:shrink-0">
@@ -456,7 +545,7 @@ const ManaRewardPanel = () => {
                 Recent Codes
               </h4>
 
-              <div className="border rounded-lg p-3 bg-muted/20">
+              <div className="border rounded-lg p-3 bg-muted/20 overflow-x-auto">
                 {recentCodes.length === 0 ? (
                   <span className="text-muted-foreground">
                     No recent codes.
@@ -536,9 +625,15 @@ const ManaRewardPanel = () => {
                 />
               </div>
             </div>
-            <div className="flex-grow overflow-auto">
-              <div className="overflow-x-auto">
-                <Table>
+            {filteredHistory.length === 0 ? (
+              <div className="flex-grow flex items-center justify-center border border-border rounded-lg bg-muted/20 p-6 text-center">
+                <p className="text-sm text-muted-foreground">No reward history found.</p>
+              </div>
+            ) : (
+              <>
+              <div className="flex-grow overflow-auto">
+                <div className="overflow-x-auto">
+                <Table className="min-w-[700px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="whitespace-nowrap">Code</TableHead>
@@ -577,6 +672,7 @@ const ManaRewardPanel = () => {
                 </Table>
               </div>
             </div>
+            {totalPages > 1 && (
             <Pagination>
               <PaginationContent>
                 <PaginationItem>
@@ -604,6 +700,9 @@ const ManaRewardPanel = () => {
                 </PaginationItem>
               </PaginationContent>
             </Pagination>
+            )}
+            </>
+            )}
           </div>
         </div>
       </div>

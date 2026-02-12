@@ -1,8 +1,9 @@
-import { collection, getDocs, doc, getDoc, updateDoc, addDoc, deleteDoc, query, where, orderBy, Timestamp, onSnapshot } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, updateDoc, addDoc, deleteDoc, query, where, orderBy, Timestamp, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { db, storage, functions, auth } from "@/lib/firebase";
 import { User, Withdrawal, Donation } from "@/types/admin";
+import type { AdminType } from "@/types/admin";
 
 export interface ReportData {
   date: Date;
@@ -28,6 +29,44 @@ export interface ManaRewardAnalytics {
     status: string;
   }>;
 }
+
+export interface AdminUserShare {
+  id: string;
+  userId: string;
+  fromAdminId: string;
+  fromAdminType: AdminType;
+  toAdminType: AdminType;
+  note: string;
+  status: "shared" | "reviewed";
+  createdAt: string;
+  userSnapshot: User;
+}
+
+const getLatestUserSnapshotForShare = async (user: User): Promise<User> => {
+  try {
+    const latestUser = await fetchUserById(user.id);
+    if (!latestUser) {
+      return user;
+    }
+
+    return {
+      ...user,
+      ...latestUser,
+      firstName: latestUser.firstName || user.firstName || "",
+      lastName: latestUser.lastName || user.lastName || "",
+      phoneNumber: latestUser.phoneNumber || user.phoneNumber || "",
+      email: latestUser.email || user.email || "",
+      address: latestUser.address || user.address || "",
+      donationAmount: latestUser.donationAmount ?? user.donationAmount ?? 0,
+      totalAsset: latestUser.totalAsset ?? user.totalAsset ?? 0,
+      kycStatus: latestUser.kycStatus || user.kycStatus || "NOT_SUBMITTED",
+      createdAt: latestUser.createdAt || user.createdAt || new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error("Error loading latest user snapshot for share:", error);
+    return user;
+  }
+};
 
 // Fetch analytics data for reports
 export const fetchReportAnalytics = async (type: "users" | "donations" | "assets" | "rewards", timeRange: string) => {
@@ -376,6 +415,164 @@ export const subscribeToUsers = (callback: (users: User[]) => void) => {
   });
   
   return unsubscribe;
+};
+
+// Share a user profile from one admin role to the other role for validation
+export const shareUserWithOtherAdmin = async (
+  user: User,
+  fromAdminType: AdminType,
+  note?: string
+): Promise<boolean> => {
+  try {
+    const latestUser = await getLatestUserSnapshotForShare(user);
+    const fromAdminId = auth.currentUser?.uid;
+    if (!fromAdminId) {
+      throw new Error("Admin is not authenticated");
+    }
+
+    const toAdminType: AdminType = fromAdminType === "developer" ? "finance" : "developer";
+
+    await addDoc(collection(db, "adminUserShares"), {
+      userId: latestUser.id,
+      fromAdminId,
+      fromAdminType,
+      toAdminType,
+      note: note || "",
+      status: "shared",
+      createdAt: new Date().toISOString(),
+      userSnapshot: {
+        id: latestUser.id,
+        firstName: latestUser.firstName || "",
+        lastName: latestUser.lastName || "",
+        phoneNumber: latestUser.phoneNumber || "",
+        email: latestUser.email || "",
+        address: latestUser.address || "",
+        donationAmount: latestUser.donationAmount || 0,
+        totalAsset: latestUser.totalAsset || 0,
+        createdAt: latestUser.createdAt || new Date().toISOString(),
+        kycStatus: latestUser.kycStatus || "NOT_SUBMITTED",
+      },
+    });
+
+    return true;
+  } catch (error) {
+    console.error("Error sharing user profile:", error);
+    return false;
+  }
+};
+
+// Realtime listener for user profiles shared to a specific admin role
+export const subscribeToSharedUsers = (
+  adminType: AdminType,
+  callback: (shares: AdminUserShare[]) => void
+) => {
+  const sharesRef = collection(db, "adminUserShares");
+  const q = query(sharesRef, where("toAdminType", "==", adminType));
+
+  const unsubscribe = onSnapshot(
+    q,
+    (snapshot) => {
+      const shares: AdminUserShare[] = snapshot.docs
+        .map((docSnapshot) => {
+          const data = docSnapshot.data();
+          return {
+            id: docSnapshot.id,
+            userId: data.userId || "",
+            fromAdminId: data.fromAdminId || "",
+            fromAdminType: ((data.fromAdminType === "main" ? "developer" : data.fromAdminType) || "developer") as AdminType,
+            toAdminType: (data.toAdminType || "finance") as AdminType,
+            note: data.note || "",
+            status: data.status || "shared",
+            createdAt: data.createdAt || new Date().toISOString(),
+            userSnapshot: {
+              id: data.userSnapshot?.id || data.userId || "",
+              firstName: data.userSnapshot?.firstName || "",
+              lastName: data.userSnapshot?.lastName || "",
+              phoneNumber: data.userSnapshot?.phoneNumber || "",
+              email: data.userSnapshot?.email || "",
+              address: data.userSnapshot?.address || "",
+              donationAmount: data.userSnapshot?.donationAmount || 0,
+              totalAsset: data.userSnapshot?.totalAsset || 0,
+              createdAt: data.userSnapshot?.createdAt || new Date().toISOString(),
+              kycStatus: data.userSnapshot?.kycStatus || "NOT_SUBMITTED",
+            },
+          };
+        })
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      callback(shares);
+    },
+    (error) => {
+      console.error("Error listening to shared user profiles:", error);
+      callback([]);
+    }
+  );
+
+  return unsubscribe;
+};
+
+// Send a structured "shared user" message to admin chat so it appears in Chat page
+export const shareUserToAdminChat = async (
+  user: User,
+  fromAdminType: AdminType,
+  note?: string
+): Promise<boolean> => {
+  try {
+    const latestUser = await getLatestUserSnapshotForShare(user);
+    const fromAdminId = auth.currentUser?.uid;
+    if (!fromAdminId) {
+      throw new Error("Admin is not authenticated");
+    }
+
+    const toAdminType: AdminType = fromAdminType === "developer" ? "finance" : "developer";
+    const senderName = fromAdminType === "developer" ? "Developer Admin" : "Finance Admin";
+
+    const lines = [
+      `USER PROFILE SHARED TO ${toAdminType.toUpperCase()} ADMIN`,
+      `Name: ${latestUser.firstName || ""} ${latestUser.lastName || ""}`,
+      `Email: ${latestUser.email || ""}`,
+      `Phone: ${latestUser.phoneNumber || "N/A"}`,
+      `Address: ${latestUser.address || "N/A"}`,
+      `Donation: ₱${(latestUser.donationAmount || 0).toLocaleString()}`,
+      `Total Asset: ₱${(latestUser.totalAsset || 0).toLocaleString()}`,
+      `KYC: ${latestUser.kycStatus || "NOT_SUBMITTED"}`,
+    ];
+
+    if (note?.trim()) {
+      lines.push(`Validation Note: ${note.trim()}`);
+    }
+
+    await addDoc(collection(db, "chat"), {
+      senderId: fromAdminId,
+      senderName,
+      senderType: fromAdminType,
+      message: lines.join("\n"),
+      timestamp: serverTimestamp(),
+      read: false,
+      attachments: [],
+      shareMeta: {
+        type: "user_profile_share",
+        toAdminType,
+        userId: latestUser.id,
+        userEmail: latestUser.email,
+        note: note?.trim() || "",
+        userSnapshot: {
+          firstName: latestUser.firstName || "",
+          lastName: latestUser.lastName || "",
+          phoneNumber: latestUser.phoneNumber || "",
+          address: latestUser.address || "",
+          donationAmount: latestUser.donationAmount || 0,
+          totalAsset: latestUser.totalAsset || 0,
+          kycStatus: latestUser.kycStatus || "NOT_SUBMITTED",
+        },
+      },
+    });
+
+    return true;
+  } catch (error) {
+    console.error("Error sending shared user profile to chat:", error);
+    return false;
+  }
 };
 
 // Real-time listener for withdrawals from payout_queue

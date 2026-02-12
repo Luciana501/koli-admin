@@ -9,7 +9,7 @@ import { IconMessage } from "@tabler/icons-react";
 interface Admin {
   id: string;
   email: string;
-  type: "main" | "finance";
+  type: "developer" | "finance";
 }
 
 const ChatList = () => {
@@ -32,7 +32,7 @@ const ChatList = () => {
     const fetchAdmins = async () => {
       try {
         const adminsRef = collection(db, "admins");
-        const oppositeType = adminType === "main" ? "finance" : "main";
+        const oppositeType = adminType === "developer" ? "finance" : "developer";
         const q = query(adminsRef, where("type", "==", oppositeType));
         const snapshot = await getDocs(q);
         
@@ -108,6 +108,20 @@ const ChatList = () => {
 
   const conversations = getConversations();
 
+  const getConversationPreview = (conversation: any) => {
+    if (conversation.unreadCount > 1) {
+      return `${conversation.unreadCount} new messages`;
+    }
+
+    if (conversation.unreadCount === 1) {
+      return `${conversation.senderName} messaged you`;
+    }
+
+    return conversation.timestamp
+      ? "Tap to open conversation"
+      : "No messages yet - start a conversation";
+  };
+
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -132,24 +146,24 @@ const ChatList = () => {
   }
 
   return (
-    <div className="h-full bg-background">
-      <div className="border-b p-4">
-        <h1 className="text-2xl font-bold">Messages</h1>
+    <div className="h-[calc(100svh-6rem)] bg-background flex flex-col overflow-hidden">
+      <div className="border-b p-3 sm:p-4">
+        <h1 className="text-xl sm:text-2xl font-bold">Messages</h1>
         <p className="text-sm text-muted-foreground">
           {conversations.length} conversation{conversations.length !== 1 ? "s" : ""}
         </p>
       </div>
 
-      <div className="divide-y">
+      <div className="divide-y flex-1 overflow-y-auto">
         {conversations.map((conversation) => (
           <div
             key={conversation.senderId}
             onClick={() => navigate("/chat/conversation")}
-            className="p-4 hover:bg-accent cursor-pointer transition-colors"
+            className="p-3 sm:p-4 hover:bg-accent cursor-pointer transition-colors"
           >
             <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                <span className="text-lg font-semibold text-primary">
+              <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                <span className="text-base sm:text-lg font-semibold text-primary">
                   {conversation.senderName.charAt(0).toUpperCase()}
                 </span>
               </div>
@@ -168,11 +182,11 @@ const ChatList = () => {
 
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-muted-foreground truncate">
-                    {conversation.latestMessage || "No messages yet - start a conversation"}
+                    {getConversationPreview(conversation)}
                   </p>
                   {conversation.unreadCount > 0 && (
-                    <span className="flex-shrink-0 ml-2 bg-primary text-primary-foreground text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                      {conversation.unreadCount}
+                    <span className="flex-shrink-0 ml-2 bg-primary text-primary-foreground text-xs font-bold rounded-full min-w-5 h-5 px-1.5 flex items-center justify-center">
+                      {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
                     </span>
                   )}
                 </div>

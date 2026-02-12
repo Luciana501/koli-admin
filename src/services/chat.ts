@@ -13,7 +13,7 @@ export interface ChatMessage {
   id: string;
   senderId: string;
   senderName: string;
-  senderType: "main" | "finance";
+  senderType: "developer" | "finance";
   message: string;
   timestamp: string;
   read: boolean;
@@ -22,6 +22,22 @@ export interface ChatMessage {
     id: string;
     senderName: string;
     message: string;
+  };
+  shareMeta?: {
+    type: "user_profile_share";
+    toAdminType: "developer" | "finance";
+    userId: string;
+    userEmail: string;
+    note?: string;
+    userSnapshot?: {
+      firstName?: string;
+      lastName?: string;
+      phoneNumber?: string;
+      address?: string;
+      donationAmount?: number;
+      totalAsset?: number;
+      kycStatus?: string;
+    };
   };
 }
 
@@ -62,12 +78,13 @@ export const subscribeToChatMessages = (callback: (messages: ChatMessage[]) => v
             id: doc.id,
             senderId: data.senderId || "",
             senderName: data.senderName || "",
-            senderType: data.senderType || "main",
+            senderType: ((data.senderType === "main" ? "developer" : data.senderType) || "developer"),
             message: data.message || "",
             timestamp: data.timestamp?.toDate?.()?.toISOString() || new Date().toISOString(),
             read: data.read || false,
             attachments: data.attachments || [],
             replyTo: data.replyTo || undefined,
+            shareMeta: data.shareMeta || undefined,
           };
         });
         callback(messages);
@@ -114,7 +131,7 @@ export const uploadChatFiles = async (files: File[]): Promise<ChatAttachment[]> 
 export const sendChatMessage = async (
   senderId: string,
   senderName: string,
-  senderType: "main" | "finance",
+  senderType: "developer" | "finance",
   message: string,
   attachments?: ChatAttachment[],
   replyTo?: { id: string; senderName: string; message: string }

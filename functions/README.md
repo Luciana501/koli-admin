@@ -52,6 +52,34 @@ See [README-EXPIRATION.md](./README-EXPIRATION.md) for detailed documentation.
 
 ---
 
+### 3. handleODHexWithdrawalRejectionRefund
+
+**Purpose:** Automatically refunds member vault balance and writes a ledger entry when an ODHex withdrawal is rejected.
+
+**Type:** Firestore trigger (`onDocumentUpdated`)
+
+**Trigger Path:** `odhexWithdrawals/{withdrawalId}`
+
+**Trigger Condition:** Status transition to `rejected`.
+
+**What it does:**
+1. Finds the member in `ODHexMembers` (doc id = uid fallback, then `uid` field lookup)
+2. Adds rejected withdrawal amount back to `vaultBalance`
+3. Writes a ledger entry in `ODHexMembers/{memberId}/odhexLedger`
+4. Marks withdrawal with `refundApplied: true` to prevent duplicate refunds
+
+**Ledger fields written:**
+- `type: withdrawal_rejected_refund`
+- `direction: credit`
+- `amount`
+- `balanceBefore`
+- `balanceAfter`
+- `note` (from rejection reason)
+- `withdrawalId`
+- `createdAt`
+
+---
+
 ## Deployment
 
 ### Prerequisites
@@ -70,6 +98,7 @@ firebase deploy --only functions
 ```bash
 firebase deploy --only functions:deleteUserAccount
 firebase deploy --only functions:expireRewardCodes
+firebase deploy --only functions:handleODHexWithdrawalRejectionRefund
 ```
 
 ### Test Locally

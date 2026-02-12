@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { User } from "@/types/admin";
-import { subscribeToUsers, createUser, updateUser, deleteUser } from "@/services/firestore";
-import { IconSearch, IconEye, IconFilter, IconX, IconEdit, IconTrash, IconPlus } from "@tabler/icons-react";
+import { subscribeToUsers, createUser, updateUser, deleteUser, shareUserWithOtherAdmin, shareUserToAdminChat } from "@/services/firestore";
+import { IconSearch, IconEye, IconFilter, IconX, IconEdit, IconTrash, IconPlus, IconShare } from "@tabler/icons-react";
 import {
   Pagination,
   PaginationContent,
@@ -32,6 +33,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const Users = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -49,8 +59,14 @@ const Users = () => {
   // Delete dialog states
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const [sharingUser, setSharingUser] = useState<User | null>(null);
+  const [shareNote, setShareNote] = useState("");
+  const [isSharing, setIsSharing] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
   
   const { toast } = useToast();
+  const { adminType } = useAuth();
   
   // Filter states
   const [assetFilter, setAssetFilter] = useState("all");
@@ -62,7 +78,7 @@ const Users = () => {
   const [maxDonation, setMaxDonation] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   
-  const itemsPerPage = 20;
+  const itemsPerPage = 50;
 
   useEffect(() => {
     // Subscribe to real-time updates
@@ -74,6 +90,21 @@ const Users = () => {
     // Cleanup subscription on unmount
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const openUserId = searchParams.get("openUserId");
+    if (!openUserId || users.length === 0) return;
+
+    const targetUser = users.find((u) => u.id === openUserId);
+    if (!targetUser) return;
+
+    setViewingUser(targetUser);
+    setIsModalOpen(true);
+
+    const params = new URLSearchParams(searchParams);
+    params.delete("openUserId");
+    setSearchParams(params, { replace: true });
+  }, [users, searchParams, setSearchParams]);
 
   const filteredUsers = users.filter((user) => {
     // Text search filter
@@ -203,6 +234,46 @@ const Users = () => {
   const handleDeleteClick = (user: User) => {
     setDeletingUser(user);
     setIsDeleteDialogOpen(true);
+  };
+
+  const handleOpenShareDialog = (user: User) => {
+    setSharingUser(user);
+    setShareNote("");
+    setIsShareDialogOpen(true);
+  };
+
+  const handleConfirmShare = async () => {
+    if (!sharingUser || !adminType) return;
+
+    setIsSharing(true);
+    try {
+      const [shareResult, chatResult] = await Promise.all([
+        shareUserWithOtherAdmin(sharingUser, adminType, shareNote),
+        shareUserToAdminChat(sharingUser, adminType, shareNote),
+      ]);
+
+      if (!shareResult || !chatResult) {
+        throw new Error("Failed to share user");
+      }
+
+      toast({
+        title: "User Shared",
+        description: `User information shared with ${adminType === "developer" ? "finance" : "developer"} admin and posted in chat.`,
+      });
+
+      setIsShareDialogOpen(false);
+      setSharingUser(null);
+      setShareNote("");
+    } catch (error) {
+      console.error("Error sharing user:", error);
+      toast({
+        title: "Error",
+        description: "Failed to share user information.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSharing(false);
+    }
   };
   
   const handleConfirmDelete = async () => {
@@ -387,7 +458,7 @@ const Users = () => {
           )}
         </div>
 
-        <div className="overflow-x-auto max-h-[400px] md:max-h-[600px] overflow-y-auto">
+        <div className="overflow-x-auto max-h-[65vh] overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <p className="text-muted-foreground">Loading users...</p>
@@ -430,6 +501,13 @@ const Users = () => {
                         aria-label="Delete user"
                       >
                         <IconTrash className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleOpenShareDialog(user)}
+                        className="inline-flex items-center p-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 transition-colors"
+                        aria-label="Share user"
+                      >
+                        <IconShare className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
@@ -533,6 +611,14 @@ const Users = () => {
                       >
                         <IconTrash className="h-4 w-4" />
                       </button>
+                      <button
+                        onClick={() => handleOpenShareDialog(user)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 transition-colors text-sm font-medium"
+                        aria-label="Share user"
+                        title="Share user profile"
+                      >
+                        <IconShare className="h-4 w-4" />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -613,6 +699,39 @@ const Users = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Share User Profile</DialogTitle>
+            <DialogDescription>
+              This will share {sharingUser?.firstName} {sharingUser?.lastName}'s information with {adminType === "developer" ? "finance" : "developer"} admin for validation.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Validation Note (optional)</label>
+            <Input
+              value={shareNote}
+              onChange={(e) => setShareNote(e.target.value)}
+              placeholder="Add context for the receiving admin..."
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsShareDialogOpen(false)}
+              disabled={isSharing}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmShare} disabled={isSharing}>
+              {isSharing ? "Sharing..." : "Share Profile"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

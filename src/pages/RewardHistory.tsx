@@ -13,11 +13,19 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface RewardHistoryItem {
   id?: string;
-  createdAt: string;
-  expiresAt: string;
+  createdAt?: string;
+  expiresAt?: string;
   pool?: number;
   remainingPool?: number;
   secretCode: string;
@@ -37,6 +45,39 @@ interface Member {
 }
 
 const RewardHistory: React.FC = () => {
+  const normalizeCode = (value: unknown): string => String(value || "").trim().toUpperCase();
+
+  const toMillis = (value: unknown): number => {
+    if (!value) return 0;
+    if (typeof value === "object" && value !== null && typeof (value as { toDate?: () => Date }).toDate === "function") {
+      return (value as { toDate: () => Date }).toDate().getTime();
+    }
+    const parsed = new Date(value as string).getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
+  const toIso = (value: unknown): string => {
+    const ms = toMillis(value);
+    return ms ? new Date(ms).toISOString() : "";
+  };
+
+  const computeRewardStatus = (reward: Pick<RewardHistoryItem, "status" | "expiresAt" | "pool" | "remainingPool">): string => {
+    const now = Date.now();
+    const expiresMs = toMillis(reward.expiresAt);
+    const rawStatus = String(reward.status || "").toLowerCase();
+    const poolValue = typeof reward.pool === "number" ? reward.pool : undefined;
+    const remainingValue = typeof reward.remainingPool === "number" ? reward.remainingPool : undefined;
+
+    if (expiresMs && expiresMs < now) return "expired";
+    if ((typeof remainingValue === "number" && remainingValue <= 0) || (typeof poolValue === "number" && poolValue <= 0)) {
+      return "depleted";
+    }
+    if (rawStatus === "active" || rawStatus === "expired" || rawStatus === "depleted") {
+      return rawStatus;
+    }
+    return "active";
+  };
+
   const [activeTab, setActiveTab] = React.useState<"analytics" | "claims">("analytics");
   const [rewards, setRewards] = React.useState<RewardHistoryItem[]>([]);
   const [members, setMembers] = React.useState<Member[]>([]);
@@ -53,37 +94,87 @@ const RewardHistory: React.FC = () => {
   const [dateTo, setDateTo] = React.useState<string>("");
   const [filterTrigger, setFilterTrigger] = React.useState(0);
   const [claimsSearch, setClaimsSearch] = React.useState("");
+  const [claimsSort, setClaimsSort] = React.useState("latest");
+  const [claimsAmountFilter, setClaimsAmountFilter] = React.useState("all");
+  const [claimsDateFromInput, setClaimsDateFromInput] = React.useState("");
+  const [claimsDateToInput, setClaimsDateToInput] = React.useState("");
+  const [claimsDateFrom, setClaimsDateFrom] = React.useState("");
+  const [claimsDateTo, setClaimsDateTo] = React.useState("");
+  const [claimsFilterTrigger, setClaimsFilterTrigger] = React.useState(0);
   const [analyticsCurrentPage, setAnalyticsCurrentPage] = React.useState(1);
   const [claimsCurrentPage, setClaimsCurrentPage] = React.useState(1);
   const itemsPerPage = 10;
   const [showFilters, setShowFilters] = React.useState(false);
+  const [showClaimsFilters, setShowClaimsFilters] = React.useState(false);
 
   React.useEffect(() => {
     const fetchRewards = async () => {
       try {
         const snap = await getDocs(collection(db, "rewardsHistory"));
-        const rawData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as RewardHistoryItem));
-        
-        // Remove duplicates and filter out 'unknown' status entries
-        const uniqueSecretCodes = new Set();
-        const filteredData = rawData.filter(item => {
-          // Skip entries with unknown status if we have a better version
-          if (item.status === 'unknown' && rawData.some(other => 
-            other.secretCode === item.secretCode && other.status !== 'unknown'
-          )) {
-            return false;
+        const normalizedRaw = snap.docs
+          .map((docSnap) => {
+            const data = docSnap.data() as Record<string, unknown>;
+            const secretCode = normalizeCode(data.secretCode || data.code || data.activeCode);
+            if (!secretCode) return null;
+
+            const basePool =
+              typeof data.pool === "number"
+                ? data.pool
+                : typeof data.totalPool === "number"
+                ? data.totalPool
+                : 0;
+            const remainingPool =
+              typeof data.remainingPool === "number"
+                ? data.remainingPool
+                : typeof basePool === "number"
+                ? basePool
+                : undefined;
+
+            const createdAt =
+              toIso(data.createdAt) ||
+              toIso(data.updatedAt) ||
+              "";
+            const expiresAt = toIso(data.expiresAt) || "";
+
+            const reward: RewardHistoryItem = {
+              id: docSnap.id,
+              secretCode,
+              createdAt,
+              expiresAt,
+              pool: basePool,
+              remainingPool,
+              status: String(data.status || ""),
+              type: String(data.type || "mana"),
+              userId: String(data.userId || ""),
+              userName: String(data.userName || ""),
+            };
+
+            return {
+              ...reward,
+              status: computeRewardStatus(reward),
+            } as RewardHistoryItem;
+          })
+          .filter((item): item is RewardHistoryItem => Boolean(item));
+
+        const dedupedByCode = new Map<string, RewardHistoryItem>();
+        normalizedRaw.forEach((item) => {
+          const existing = dedupedByCode.get(item.secretCode);
+          if (!existing) {
+            dedupedByCode.set(item.secretCode, item);
+            return;
           }
-          
-          // Skip duplicates, keeping the first occurrence
-          if (uniqueSecretCodes.has(item.secretCode)) {
-            return false;
+
+          const existingCreated = toMillis(existing.createdAt);
+          const candidateCreated = toMillis(item.createdAt);
+          if (candidateCreated > existingCreated) {
+            dedupedByCode.set(item.secretCode, item);
           }
-          
-          uniqueSecretCodes.add(item.secretCode);
-          return true;
         });
-        
-        console.log("Fetched rewards:", filteredData);
+
+        const filteredData = Array.from(dedupedByCode.values()).sort(
+          (a, b) => toMillis(b.createdAt) - toMillis(a.createdAt)
+        );
+
         setRewards(filteredData);
       } catch (error) {
         console.error("Error fetching rewards:", error);
@@ -150,14 +241,15 @@ const RewardHistory: React.FC = () => {
             userName: docData.userName || docData.name || "",
             userEmail: docData.userEmail || docData.email || "",
             claimAmount: docData.claimAmount || docData.amount || 0,
-            claimedAt: docData.claimedAt || docData.timestamp || docData.createdAt || new Date().toISOString(),
+            claimedAt: toIso(docData.claimedAt || docData.timestamp || docData.createdAt) || new Date().toISOString(),
             claimedDate: docData.claimedDate || docData.date || "",
             poolAfter: docData.poolAfter || docData.afterPool || 0,
             poolBefore: docData.poolBefore || docData.beforePool || 0,
             rewardPoolId: docData.rewardPoolId || docData.poolId || "",
-            secretCode: docData.secretCode || docData.code || docData.rewardCode || "",
+            secretCode: normalizeCode(docData.secretCode || docData.code || docData.rewardCode || ""),
             timeToClaim: docData.timeToClaim || 0,
             timeToClaimMinutes: docData.timeToClaimMinutes || 0,
+            codeCreatedAt: toIso(docData.codeCreatedAt) || "",
           } as RewardClaim;
         });
         
@@ -210,21 +302,11 @@ const filteredRewards = React.useMemo(() => {
   const toTime = dateTo ? getManilaTimestamp(dateTo, true) : null;
 
   let result = rewards.map(r => {
-    const now = Date.now();
-    const expiresTime = r.expiresAt ? new Date(r.expiresAt).getTime() : null;
-    const isExpired = expiresTime && expiresTime < now;
-    const isDepleted = (typeof r.pool === 'number' && r.pool <= 0) ||
-                       (typeof r.remainingPool === 'number' && r.remainingPool <= 0);
-    let status = r.status || 'unknown';
-    if (isExpired) {
-      status = 'expired';
-    } else if (isDepleted) {
-      status = 'depleted';
-    }
+    const status = computeRewardStatus(r);
     return { ...r, computedStatus: status };
   }).filter(r => {
     // Parse createdAt as ISO string or timestamp
-    const createdTime = Date.parse(r.createdAt);
+    const createdTime = toMillis(r.createdAt);
 
     const matchesSearch =
       r.userName?.toLowerCase().includes(search.toLowerCase()) ||
@@ -242,66 +324,52 @@ const filteredRewards = React.useMemo(() => {
   // Sorting
   if (filter === "latest") {
     result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => {
-      const aTime = new Date(a.createdAt).getTime();
-      const bTime = new Date(b.createdAt).getTime();
+      const aTime = toMillis(a.createdAt);
+      const bTime = toMillis(b.createdAt);
       return bTime - aTime; // Newest first
     });
   } else if (filter === "oldest") {
     result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => {
-      const aTime = new Date(a.createdAt).getTime();
-      const bTime = new Date(b.createdAt).getTime();
+      const aTime = toMillis(a.createdAt);
+      const bTime = toMillis(b.createdAt);
       return aTime - bTime; // Oldest first
     });
   } else if (filter === "most") {
     result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => {
-      const aClaims = rewardClaims.filter((claim) => claim.secretCode === a.secretCode).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
-      const bClaims = rewardClaims.filter((claim) => claim.secretCode === b.secretCode).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
+      const aClaims = rewardClaims.filter((claim) => normalizeCode(claim.secretCode) === normalizeCode(a.secretCode)).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
+      const bClaims = rewardClaims.filter((claim) => normalizeCode(claim.secretCode) === normalizeCode(b.secretCode)).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
       return bClaims - aClaims;
     });
   } else if (filter === "least") {
     result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => {
-      const aClaims = rewardClaims.filter((claim) => claim.secretCode === a.secretCode).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
-      const bClaims = rewardClaims.filter((claim) => claim.secretCode === b.secretCode).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
+      const aClaims = rewardClaims.filter((claim) => normalizeCode(claim.secretCode) === normalizeCode(a.secretCode)).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
+      const bClaims = rewardClaims.filter((claim) => normalizeCode(claim.secretCode) === normalizeCode(b.secretCode)).reduce((sum: number, claim) => sum + (claim.claimAmount || 0), 0);
       return aClaims - bClaims;
     });
   } else if (filter === "first") {
     result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => {
-      const aFiltered = rewardClaims.filter((claim) => claim.secretCode === a.secretCode);
-      const bFiltered = rewardClaims.filter((claim) => claim.secretCode === b.secretCode);
-      
-      const getTime = (dateValue) => {
-        if (!dateValue) return 0;
-        try {
-          if (typeof dateValue === 'object' && 
-              dateValue !== null && 
-              typeof dateValue.toDate === 'function') {
-            return dateValue.toDate().getTime();
-          }
-          const date = new Date(dateValue);
-          return isNaN(date.getTime()) ? 0 : date.getTime();
-        } catch (error) {
-          console.error('Error parsing date value:', error, dateValue);
-          return 0;
-        }
-      };
+      const aFiltered = rewardClaims.filter((claim) => normalizeCode(claim.secretCode) === normalizeCode(a.secretCode));
+      const bFiltered = rewardClaims.filter((claim) => normalizeCode(claim.secretCode) === normalizeCode(b.secretCode));
       
       const aFirst = aFiltered.sort((x, y) => {
-        const xTime = getTime(x.claimedAt);
-        const yTime = getTime(y.claimedAt);
+        const xTime = toMillis(x.claimedAt);
+        const yTime = toMillis(y.claimedAt);
         return xTime - yTime;
       })[0];
       const bFirst = bFiltered.sort((x, y) => {
-        const xTime = getTime(x.claimedAt);
-        const yTime = getTime(y.claimedAt);
+        const xTime = toMillis(x.claimedAt);
+        const yTime = toMillis(y.claimedAt);
         return xTime - yTime;
       })[0];
       
-      const aTime = aFirst && a.createdAt ? (getTime(aFirst.claimedAt) - new Date(a.createdAt).getTime()) : Infinity;
-      const bTime = bFirst && b.createdAt ? (getTime(bFirst.claimedAt) - new Date(b.createdAt).getTime()) : Infinity;
+      const aCreatedAt = toMillis(a.createdAt) || toMillis((aFirst as RewardClaim & { codeCreatedAt?: string } | undefined)?.codeCreatedAt);
+      const bCreatedAt = toMillis(b.createdAt) || toMillis((bFirst as RewardClaim & { codeCreatedAt?: string } | undefined)?.codeCreatedAt);
+      const aTime = aFirst && aCreatedAt ? (toMillis(aFirst.claimedAt) - aCreatedAt) : Infinity;
+      const bTime = bFirst && bCreatedAt ? (toMillis(bFirst.claimedAt) - bCreatedAt) : Infinity;
       return aTime - bTime;
     });
   } else if (filter === "pool") {
-    result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => b.pool - a.pool);
+    result = result.slice().sort((a: RewardHistoryItem, b: RewardHistoryItem) => (b.pool || 0) - (a.pool || 0));
   }
   return result;
 }, [rewards, rewardClaims, search, filter, statusFilter, dateFrom, dateTo, filterTrigger]);
@@ -316,15 +384,49 @@ const filteredRewards = React.useMemo(() => {
 
   // Filter reward claims
   const filteredRewardClaims = React.useMemo(() => {
-    return rewardClaims.filter(claim => {
+    const getClaimTime = (dateValue: unknown): number => {
+      return toMillis(dateValue);
+    };
+
+    const fromTime = claimsDateFrom ? new Date(`${claimsDateFrom}T00:00:00`).getTime() : null;
+    const toTime = claimsDateTo ? new Date(`${claimsDateTo}T23:59:59.999`).getTime() : null;
+
+    let result = rewardClaims.filter(claim => {
       const matchesSearch = 
         claim.userName?.toLowerCase().includes(claimsSearch.toLowerCase()) ||
         claim.userEmail?.toLowerCase().includes(claimsSearch.toLowerCase()) ||
         claim.secretCode?.toLowerCase().includes(claimsSearch.toLowerCase()) ||
         claim.userId?.toLowerCase().includes(claimsSearch.toLowerCase());
-      return matchesSearch;
+
+      const amount = claim.claimAmount || 0;
+      const matchesAmount =
+        claimsAmountFilter === "all"
+          ? true
+          : claimsAmountFilter === "low"
+          ? amount < 10000
+          : claimsAmountFilter === "medium"
+          ? amount >= 10000 && amount < 50000
+          : amount >= 50000;
+
+      const claimedTime = getClaimTime(claim.claimedAt);
+      const matchesDateFrom = fromTime !== null ? claimedTime >= fromTime : true;
+      const matchesDateTo = toTime !== null ? claimedTime <= toTime : true;
+
+      return matchesSearch && matchesAmount && matchesDateFrom && matchesDateTo;
     });
-  }, [rewardClaims, claimsSearch]);
+
+    if (claimsSort === "latest") {
+      result = result.slice().sort((a, b) => getClaimTime(b.claimedAt) - getClaimTime(a.claimedAt));
+    } else if (claimsSort === "oldest") {
+      result = result.slice().sort((a, b) => getClaimTime(a.claimedAt) - getClaimTime(b.claimedAt));
+    } else if (claimsSort === "highest") {
+      result = result.slice().sort((a, b) => (b.claimAmount || 0) - (a.claimAmount || 0));
+    } else if (claimsSort === "lowest") {
+      result = result.slice().sort((a, b) => (a.claimAmount || 0) - (b.claimAmount || 0));
+    }
+
+    return result;
+  }, [rewardClaims, claimsSearch, claimsSort, claimsAmountFilter, claimsDateFrom, claimsDateTo, claimsFilterTrigger]);
 
   // Paginate claims
   const paginatedClaims = React.useMemo(() => {
@@ -341,7 +443,7 @@ const filteredRewards = React.useMemo(() => {
 
   React.useEffect(() => {
     setClaimsCurrentPage(1);
-  }, [claimsSearch]);
+  }, [claimsSearch, claimsSort, claimsAmountFilter, claimsDateFrom, claimsDateTo]);
 
   // Leaderboards - use rewardClaims
   const userClaimStats: Record<string, { total: number; count: number; times: number[] }> = {};
@@ -351,29 +453,11 @@ const filteredRewards = React.useMemo(() => {
     userClaimStats[claim.userId].count += 1;
     
     // Calculate time to claim using reward creation time from rewards array
-    const reward = rewards.find(r => r.secretCode === claim.secretCode);
-    if (claim.claimedAt && reward?.createdAt) {
-      const getTime = (dateValue) => {
-        if (!dateValue) return 0;
-        try {
-          if (typeof dateValue === 'object' && 
-              dateValue !== null && 
-              typeof dateValue.toDate === 'function') {
-            return dateValue.toDate().getTime();
-          }
-          const date = new Date(dateValue);
-          return isNaN(date.getTime()) ? 0 : date.getTime();
-        } catch (error) {
-          console.error('Error parsing date value:', error, dateValue);
-          return 0;
-        }
-      };
-      
-      const claimedTime = getTime(claim.claimedAt);
-      const createdTime = new Date(reward.createdAt).getTime();
-      if (claimedTime && createdTime) {
-        userClaimStats[claim.userId].times.push(claimedTime - createdTime);
-      }
+    const reward = rewards.find(r => normalizeCode(r.secretCode) === normalizeCode(claim.secretCode));
+    const claimedTime = toMillis(claim.claimedAt);
+    const createdTime = toMillis(reward?.createdAt) || toMillis((claim as RewardClaim & { codeCreatedAt?: string }).codeCreatedAt);
+    if (claimedTime && createdTime) {
+      userClaimStats[claim.userId].times.push(claimedTime - createdTime);
     }
   });
   // Top claimers
@@ -394,7 +478,7 @@ const filteredRewards = React.useMemo(() => {
 
   if (loading) {
     return (
-      <div className="p-4 md:p-6 lg:p-8">
+      <div className="p-2 sm:p-4 md:p-6 lg:p-8">
         <div className="flex items-center justify-center h-64">
           <p className="text-sm md:text-lg text-muted-foreground">Loading reward claims...</p>
         </div>
@@ -403,10 +487,10 @@ const filteredRewards = React.useMemo(() => {
   }
 
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div className="p-2 sm:p-4 md:p-6 lg:p-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 mb-4 md:mb-6">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold">Reward History</h1>
+          <h1 className="text-lg sm:text-xl md:text-2xl font-bold">Reward History</h1>
           <p className="text-xs md:text-sm text-muted-foreground mt-1">Track and analyze reward distribution</p>
         </div>
       </div>
@@ -415,7 +499,7 @@ const filteredRewards = React.useMemo(() => {
       <div className="flex gap-2 sm:gap-4 mb-6 overflow-x-auto">
         <button
           onClick={() => setActiveTab("analytics")}
-          className={`flex items-center gap-2 px-3 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold transition text-sm sm:text-base whitespace-nowrap ${
+          className={`flex items-center gap-2 px-2 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold transition text-xs sm:text-base whitespace-nowrap ${
             activeTab === "analytics"
               ? "bg-primary text-primary-foreground"
               : "bg-card text-foreground hover:bg-muted border border-border"
@@ -426,7 +510,7 @@ const filteredRewards = React.useMemo(() => {
         </button>
         <button
           onClick={() => setActiveTab("claims")}
-          className={`flex items-center gap-2 px-3 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold transition text-sm sm:text-base whitespace-nowrap ${
+          className={`flex items-center gap-2 px-2 sm:px-6 py-2 sm:py-3 rounded-lg font-semibold transition text-xs sm:text-base whitespace-nowrap ${
             activeTab === "claims"
               ? "bg-primary text-primary-foreground"
               : "bg-card text-foreground hover:bg-muted border border-border"
@@ -465,7 +549,7 @@ const filteredRewards = React.useMemo(() => {
                     <div className="w-2 h-2 bg-primary rounded-full" />
                   )}
                 </Button>
-                <div className="text-sm font-medium text-muted-foreground ml-2">
+                <div className="text-xs sm:text-sm font-medium text-muted-foreground ml-1 sm:ml-2">
                   Total Mana Codes: {filteredRewards.length}
                 </div>
               </div>
@@ -477,33 +561,38 @@ const filteredRewards = React.useMemo(() => {
                 {/* Sort By */}
                 <div>
                   <label className="block text-sm font-semibold mb-2">Sort By</label>
-                  <select
-                    className="w-full border border-input rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
-                    value={filter}
-                    onChange={e => setFilter(e.target.value)}
-                  >
-                    <option value="latest">Latest</option>
-                    <option value="oldest">Oldest</option>
-                    <option value="most">Most Claimed</option>
-                    <option value="first">Fastest First Claim</option>
-                    <option value="least">Least Claimed</option>
-                    <option value="pool">Pool Size</option>
-                  </select>
+                  <Select value={filter} onValueChange={setFilter}>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Sort by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="latest">Latest</SelectItem>
+                      <SelectItem value="oldest">Oldest</SelectItem>
+                      <SelectItem value="most">Most Claimed</SelectItem>
+                      <SelectItem value="first">Fastest First Claim</SelectItem>
+                      <SelectItem value="least">Least Claimed</SelectItem>
+                      <SelectItem value="pool">Pool Size</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* Status Filter */}
                 <div>
                   <label className="block text-sm font-semibold mb-2">Status</label>
-                  <select
-                    className="w-full border border-input rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring bg-background"
-                    value={statusFilter}
-                    onChange={e => setStatusFilter(e.target.value)}
+                  <Select
+                    value={statusFilter || "all"}
+                    onValueChange={(value) => setStatusFilter(value === "all" ? "" : value)}
                   >
-                    <option value="">All Statuses</option>
-                    <option value="active">Active</option>
-                    <option value="expired">Expired</option>
-                    <option value="depleted">Depleted</option>
-                  </select>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Statuses</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="expired">Expired</SelectItem>
+                      <SelectItem value="depleted">Depleted</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* Date Range - Empty third column for alignment */}
@@ -549,6 +638,11 @@ const filteredRewards = React.useMemo(() => {
           </div>
 
       {/* Analytics Table */}
+      {filteredRewards.length === 0 ? (
+      <div className="bg-card border border-border rounded-lg text-center py-8 md:py-12 mb-8">
+        <p className="text-sm md:text-base text-muted-foreground">No rewards found matching your filters.</p>
+      </div>
+      ) : (
       <div className="bg-card border border-border rounded-lg overflow-hidden mb-8">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px]">
@@ -565,55 +659,37 @@ const filteredRewards = React.useMemo(() => {
             </thead>
         <tbody>
           {paginatedRewards.map((r, idx) => {
-            const codeClaims = rewardClaims.filter(claim => claim.secretCode === r.secretCode);
+            const codeClaims = rewardClaims.filter(claim => normalizeCode(claim.secretCode) === normalizeCode(r.secretCode));
             const totalClaimed = codeClaims.reduce((sum, claim) => sum + (claim.claimAmount || 0), 0);
             const claimers = Array.from(new Set(codeClaims.map(claim => claim.userId))).length;
             const sortedClaims = [...codeClaims].sort((a, b) => {
-              const getTime = (dateValue) => {
-                if (!dateValue) return 0;
-                try {
-                  if (typeof dateValue === 'object' && 
-                      dateValue !== null && 
-                      typeof dateValue.toDate === 'function') {
-                    return dateValue.toDate().getTime();
-                  }
-                  const date = new Date(dateValue);
-                  return isNaN(date.getTime()) ? 0 : date.getTime();
-                } catch (error) {
-                  console.error('Error parsing date value:', error, dateValue);
-                  return 0;
-                }
-              };
-              
-              const aTime = getTime(a.claimedAt);
-              const bTime = getTime(b.claimedAt);
+              const aTime = toMillis(a.claimedAt);
+              const bTime = toMillis(b.claimedAt);
               return aTime - bTime;
             });
             const firstClaim = sortedClaims[0];
-            const timeToFirst = firstClaim && r.createdAt ? 
+            const timeToFirst = firstClaim ? 
               (() => {
-                const getTime = (dateValue) => {
-                  if (!dateValue) return 0;
-                  try {
-                    if (typeof dateValue === 'object' && 
-                        dateValue !== null && 
-                        typeof dateValue.toDate === 'function') {
-                      return dateValue.toDate().getTime();
-                    }
-                    const date = new Date(dateValue);
-                    return isNaN(date.getTime()) ? 0 : date.getTime();
-                  } catch (error) {
-                    console.error('Error parsing date value:', error, dateValue);
-                    return 0;
-                  }
+                const typedFirstClaim = firstClaim as RewardClaim & {
+                  codeCreatedAt?: string;
+                  timeToClaim?: number;
+                  timeToClaimMinutes?: number;
                 };
-                
-                const claimedTime = getTime(firstClaim.claimedAt);
-                const createdTime = new Date(r.createdAt).getTime();
+
+                if (typeof typedFirstClaim.timeToClaimMinutes === "number" && typedFirstClaim.timeToClaimMinutes > 0) {
+                  return typedFirstClaim.timeToClaimMinutes * 60;
+                }
+
+                if (typeof typedFirstClaim.timeToClaim === "number" && typedFirstClaim.timeToClaim > 0) {
+                  return typedFirstClaim.timeToClaim;
+                }
+
+                const claimedTime = toMillis(firstClaim.claimedAt);
+                const createdTime = toMillis(r.createdAt) || toMillis(typedFirstClaim.codeCreatedAt);
                 return claimedTime && createdTime ? (claimedTime - createdTime) / 1000 : null;
               })()
               : null;
-            const status = r.computedStatus || 'unknown';
+            const status = r.computedStatus || 'active';
             return (
               <tr
                 key={r.id || idx}
@@ -648,12 +724,8 @@ const filteredRewards = React.useMemo(() => {
         </tbody>
           </table>
         </div>
-        {filteredRewards.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground">No rewards found matching your filters.</p>
-          </div>
-        )}
       </div>
+      )}
 
       {/* Pagination for Analytics */}
       {analyticsTotalPages > 1 && (
@@ -760,18 +832,106 @@ const filteredRewards = React.useMemo(() => {
         </>
       ) : (
         <>
-          {/* Individual Claims Tab - Search */}
+          {/* Individual Claims Tab - Search and Filters */}
           <div className="bg-card border border-border rounded-lg p-4 md:p-6 mb-6">
-            <div className="relative">
-              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                className="w-full pl-10 pr-4 py-2 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="Search by user name, email, reward code, or user ID..."
-                value={claimsSearch}
-                onChange={e => setClaimsSearch(e.target.value)}
-              />
+            <div className="flex flex-col sm:flex-row gap-3 mb-4 items-start sm:items-center">
+              <div className="relative flex-1">
+                <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  className="w-full pl-10 pr-4 py-2 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="Search by user name, email, reward code, or user ID..."
+                  value={claimsSearch}
+                  onChange={e => setClaimsSearch(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2 items-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowClaimsFilters(!showClaimsFilters)}
+                  className="flex items-center gap-2"
+                >
+                  <IconFilter className="h-4 w-4" />
+                  Filters
+                  {(claimsSort !== "latest" || claimsAmountFilter !== "all" || claimsDateFrom || claimsDateTo) && (
+                    <div className="w-2 h-2 bg-primary rounded-full" />
+                  )}
+                </Button>
+                <div className="text-xs sm:text-sm font-medium text-muted-foreground ml-1 sm:ml-2">
+                  Total Claims: {filteredRewardClaims.length}
+                </div>
+              </div>
             </div>
+
+            {showClaimsFilters && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4 border-t border-border">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Sort By</label>
+                  <Select value={claimsSort} onValueChange={setClaimsSort}>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Sort by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="latest">Latest</SelectItem>
+                      <SelectItem value="oldest">Oldest</SelectItem>
+                      <SelectItem value="highest">Highest Amount</SelectItem>
+                      <SelectItem value="lowest">Lowest Amount</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Amount Range</label>
+                  <Select value={claimsAmountFilter} onValueChange={setClaimsAmountFilter}>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Select range" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Amounts</SelectItem>
+                      <SelectItem value="low">Low (&lt; ₱10K)</SelectItem>
+                      <SelectItem value="medium">Medium (₱10K - ₱50K)</SelectItem>
+                      <SelectItem value="high">High (₱50K+)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div></div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">From Date</label>
+                  <Input
+                    type="date"
+                    className="h-10"
+                    value={claimsDateFromInput}
+                    onChange={(e) => setClaimsDateFromInput(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">To Date</label>
+                  <Input
+                    type="date"
+                    className="h-10"
+                    value={claimsDateToInput}
+                    onChange={(e) => setClaimsDateToInput(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex items-end">
+                  <Button
+                    className="w-full h-10"
+                    onClick={() => {
+                      setClaimsDateFrom(claimsDateFromInput);
+                      setClaimsDateTo(claimsDateToInput);
+                      setClaimsFilterTrigger((v) => v + 1);
+                    }}
+                  >
+                    Apply Filters
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {filteredRewardClaims.length === 0 ? (
@@ -831,13 +991,13 @@ const filteredRewards = React.useMemo(() => {
                         key={claim.id}
                         className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
                       >
-                        <td className="px-6 py-4 align-middle text-sm font-semibold">{claim.userName}</td>
-                        <td className="px-6 py-4 align-middle text-sm">{claim.userEmail}</td>
-                        <td className="px-6 py-4 align-middle text-sm font-semibold">{claim.secretCode}</td>
-                        <td className="px-6 py-4 align-middle text-sm text-right font-bold text-green-600">₱{(claim.claimAmount || 0).toFixed(2)}</td>
-                        <td className="px-6 py-4 align-middle text-sm text-right">₱{(claim.poolBefore || 0).toFixed(2)}</td>
-                        <td className="px-6 py-4 align-middle text-sm text-right">₱{(claim.poolAfter || 0).toFixed(2)}</td>
-                        <td className="px-6 py-4 align-middle text-sm">
+                        <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm font-semibold">{claim.userName}</td>
+                        <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm">{claim.userEmail}</td>
+                        <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm font-semibold">{claim.secretCode}</td>
+                        <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right font-bold text-green-600 whitespace-nowrap">₱{(claim.claimAmount || 0).toFixed(2)}</td>
+                        <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right whitespace-nowrap">₱{(claim.poolBefore || 0).toFixed(2)}</td>
+                        <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right whitespace-nowrap">₱{(claim.poolAfter || 0).toFixed(2)}</td>
+                        <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm whitespace-nowrap">
                           {claimedDate && !isNaN(claimedDate.getTime()) ? 
                             claimedDate.toLocaleDateString('en-US', { 
                               month: 'short', 
@@ -848,7 +1008,7 @@ const filteredRewards = React.useMemo(() => {
                             }) : 'Invalid Date'
                           }
                         </td>
-                        <td className="px-6 py-4 align-middle text-sm text-right">{timeDisplay}</td>
+                        <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right whitespace-nowrap">{timeDisplay}</td>
                       </tr>
                     );
                   })}

@@ -109,8 +109,8 @@ const Chat = () => {
 
       const success = await sendChatMessage(
         auth.currentUser.uid,
-        adminType === "main" ? "Main Admin" : "Finance Admin",
-        adminType || "main",
+        adminType === "developer" ? "Developer Admin" : "Finance Admin",
+        adminType || "developer",
         newMessage.trim() || "(File attachment)",
         attachments,
         replyingTo ? {
@@ -157,9 +157,28 @@ const Chat = () => {
     }
   };
 
+  const parseSharedUserFromMessage = (message: string) => {
+    const lines = message.split("\n");
+    const getValue = (prefix: string) => {
+      const match = lines.find((line) => line.startsWith(prefix));
+      return match ? match.replace(prefix, "").trim() : "";
+    };
+
+    return {
+      name: getValue("Name:"),
+      email: getValue("Email:"),
+      phone: getValue("Phone:"),
+      address: getValue("Address:"),
+      donation: getValue("Donation:"),
+      totalAsset: getValue("Total Asset:"),
+      kyc: getValue("KYC:"),
+      note: getValue("Validation Note:"),
+    };
+  };
+
   if (loading) {
     return (
-      <div>
+      <div className="p-2 sm:p-4">
         <div className="flex items-center justify-center h-64">
           <p className="text-muted-foreground">Loading chat...</p>
         </div>
@@ -168,8 +187,8 @@ const Chat = () => {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100svh-6.5rem)]">
-      <div className="mb-4 flex items-center gap-3">
+    <div className="flex flex-col h-[calc(100svh-5.5rem)] md:h-[calc(100svh-6.5rem)]">
+      <div className="mb-3 sm:mb-4 flex items-center gap-2 sm:gap-3">
         <button
           onClick={() => navigate("/chat")}
           className="p-2 hover:bg-accent rounded-lg transition-colors"
@@ -177,7 +196,7 @@ const Chat = () => {
           <IconArrowLeft className="h-5 w-5" />
         </button>
         <div>
-          <h1 className="text-xl md:text-2xl font-bold">Admin Chat</h1>
+          <h1 className="text-lg sm:text-xl md:text-2xl font-bold">Admin Chat</h1>
           <p className="text-sm md:text-base text-muted-foreground mt-1">
             Real-time communication between admins
           </p>
@@ -186,7 +205,7 @@ const Chat = () => {
 
       <div className="flex-1 bg-card border border-border rounded-lg flex flex-col overflow-hidden">
         {/* Messages area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
           {messages.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <p className="text-muted-foreground">No messages yet. Start the conversation!</p>
@@ -194,6 +213,9 @@ const Chat = () => {
           ) : (
             messages.map((msg) => {
               const isOwnMessage = msg.senderType === adminType;
+              const parsedShare = msg.shareMeta?.type === "user_profile_share"
+                ? parseSharedUserFromMessage(msg.message)
+                : null;
               return (
                 <div
                   key={msg.id}
@@ -210,7 +232,7 @@ const Chat = () => {
                   {/* Message bubble with reply button */}
                   <div className={`flex items-start gap-2 group ${isOwnMessage ? "flex-row-reverse" : ""}`}>
                     <div
-                      className={`min-w-[100px] max-w-[70%] rounded-2xl ${
+                      className={`min-w-[100px] max-w-[85%] sm:max-w-[70%] rounded-2xl ${
                         isOwnMessage
                           ? "bg-primary text-primary-foreground rounded-br-sm"
                           : "bg-muted text-foreground rounded-bl-sm"
@@ -227,7 +249,72 @@ const Chat = () => {
                       )}
                       
                       <div className="px-4 py-2">
-                        <p className="text-sm break-words whitespace-pre-wrap">{msg.message}</p>
+                        {msg.shareMeta?.type === "user_profile_share" ? (
+                          <div
+                            className={`rounded-lg border p-3 space-y-2 text-sm ${
+                              isOwnMessage
+                                ? "border-primary-foreground/30 bg-primary-foreground/10"
+                                : "border-border bg-background/70"
+                            }`}
+                          >
+                            <p className="text-xs font-semibold uppercase tracking-wide opacity-80">
+                              Shared User Profile for {msg.shareMeta.toAdminType} admin
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              <p className="break-words">
+                                <span className="font-medium">Name:</span>{" "}
+                                {`${msg.shareMeta.userSnapshot?.firstName || ""} ${msg.shareMeta.userSnapshot?.lastName || ""}`.trim() || parsedShare?.name || "N/A"}
+                              </p>
+                              <p className="break-words">
+                                <span className="font-medium">Email:</span> {msg.shareMeta.userEmail || parsedShare?.email || "N/A"}
+                              </p>
+                              <p className="break-words">
+                                <span className="font-medium">Phone:</span>{" "}
+                                {msg.shareMeta.userSnapshot?.phoneNumber || parsedShare?.phone || "N/A"}
+                              </p>
+                              <p className="break-words">
+                                <span className="font-medium">KYC:</span>{" "}
+                                {msg.shareMeta.userSnapshot?.kycStatus || parsedShare?.kyc || "NOT_SUBMITTED"}
+                              </p>
+                              <p className="break-words sm:col-span-2">
+                                <span className="font-medium">Address:</span>{" "}
+                                {msg.shareMeta.userSnapshot?.address || parsedShare?.address || "N/A"}
+                              </p>
+                              <p>
+                                <span className="font-medium">Donation:</span>{" "}
+                                {msg.shareMeta.userSnapshot?.donationAmount != null
+                                  ? `₱${(msg.shareMeta.userSnapshot.donationAmount || 0).toLocaleString()}`
+                                  : parsedShare?.donation || "₱0"}
+                              </p>
+                              <p>
+                                <span className="font-medium">Total Asset:</span>{" "}
+                                {msg.shareMeta.userSnapshot?.totalAsset != null
+                                  ? `₱${(msg.shareMeta.userSnapshot.totalAsset || 0).toLocaleString()}`
+                                  : parsedShare?.totalAsset || "₱0"}
+                              </p>
+                            </div>
+                            {(msg.shareMeta.note || parsedShare?.note) && (
+                              <div className="pt-2 border-t border-current/20">
+                                <p className="text-xs font-medium opacity-80">Validation Note</p>
+                                <p className="break-words">{msg.shareMeta.note || parsedShare?.note}</p>
+                              </div>
+                            )}
+                            <div className="pt-2">
+                              <button
+                                onClick={() => navigate(`/users?openUserId=${msg.shareMeta?.userId || ""}`)}
+                                className={`inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                                  isOwnMessage
+                                    ? "bg-primary-foreground/20 hover:bg-primary-foreground/30"
+                                    : "bg-muted hover:bg-muted/80"
+                                }`}
+                              >
+                                Open User
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm break-words whitespace-pre-wrap">{msg.message}</p>
+                        )}
                       </div>
                     
                     {/* Attachments */}
@@ -318,7 +405,7 @@ const Chat = () => {
         </div>
 
         {/* Input area */}
-        <div className="border-t border-border p-4">
+        <div className="border-t border-border p-3 sm:p-4">
           {/* Replying to indicator */}
           {replyingTo && (
             <div className="mb-3 flex items-center justify-between px-3 py-2 bg-muted rounded-md text-sm">
@@ -361,7 +448,7 @@ const Chat = () => {
             </div>
           )}
           
-          <form onSubmit={handleSendMessage} className="flex gap-2">
+          <form onSubmit={handleSendMessage} className="flex gap-1.5 sm:gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -390,7 +477,7 @@ const Chat = () => {
             <button
               type="submit"
               disabled={(!newMessage.trim() && selectedFiles.length === 0) || sending}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-3 sm:px-4 py-2 bg-primary text-primary-foreground rounded-md font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               <IconSend className="h-4 w-4" />
               <span className="hidden sm:inline">{sending ? "Sending..." : "Send"}</span>

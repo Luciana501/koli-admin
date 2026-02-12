@@ -14,6 +14,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const normalizeAdminType = (type: unknown): AdminType | null => {
+  if (type === "developer" || type === "finance") return type;
+  if (type === "main") return "developer";
+  return null;
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [adminType, setAdminType] = useState<AdminType | null>(null);
@@ -26,7 +32,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           // Fetch admin type from Firestore
           const adminDoc = await getDoc(doc(db, "admins", user.uid));
           if (adminDoc.exists()) {
-            setAdminType(adminDoc.data().type as AdminType);
+            setAdminType(normalizeAdminType(adminDoc.data().type));
             setIsAuthenticated(true);
           } else {
             // User exists but not an admin
@@ -58,7 +64,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // Fetch admin type from Firestore
       const adminDoc = await getDoc(doc(db, "admins", user.uid));
       if (adminDoc.exists()) {
-        setAdminType(adminDoc.data().type as AdminType);
+        setAdminType(normalizeAdminType(adminDoc.data().type));
         setIsAuthenticated(true);
         return true;
       } else {

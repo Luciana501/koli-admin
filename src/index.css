@@ -103,9 +103,17 @@
 
   body {
     @apply text-foreground font-sans antialiased;
+    font-family: "Montserrat", sans-serif;
     height: 100%;
     background-color: hsl(var(--background));
     overscroll-behavior: none;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
   }
 
   #root {

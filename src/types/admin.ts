@@ -1,4 +1,4 @@
-export type AdminType = "main" | "finance";
+export type AdminType = "developer" | "finance";
 
 export interface User {
   id: string;

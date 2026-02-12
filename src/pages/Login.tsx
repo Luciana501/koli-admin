@@ -15,7 +15,7 @@ const Login = () => {
   const navigate = useNavigate();
   const { login, adminType } = useAuth();
   useEffect(() => {
-    if (adminType === "main") {
+    if (adminType === "developer") {
       const unsubscribe = subscribeToKYC((users) => {
         setKycUsers(users.filter(u => u.kycStatus === "PENDING"));
         setKycLoading(false);
@@ -104,8 +104,8 @@ const Login = () => {
               {loading ? "Logging in..." : "Login"}
             </button>
           </form>
-          {/* KYC Approval Section for Main Admin */}
-          {adminType === "main" && (
+          {/* KYC Approval Section for Developer Admin */}
+          {adminType === "developer" && (
             <div className="mt-8">
               <h2 className="text-lg font-semibold mb-4">Pending KYC Applications</h2>
               {kycLoading ? (

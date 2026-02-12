@@ -96,7 +96,14 @@ const Reports = () => {
   const [manaRewardData, setManaRewardData] = useState<ManaRewardAnalytics | null>(null);
   const [dashboardStats, setDashboardStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640);
   const reportsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     const loadData = async () => {
@@ -148,9 +155,9 @@ const Reports = () => {
 
   if (loading || chartData.length === 0) {
     return (
-      <div className="h-full bg-background p-4 md:p-6 lg:p-8">
+      <div className="h-full bg-background p-2 sm:p-4 md:p-6 lg:p-8">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold">Reports</h1>
+          <h1 className="text-lg sm:text-2xl font-bold">Reports</h1>
           <p className="text-muted-foreground mt-1">
             View analytics and statistics
           </p>
@@ -251,6 +258,19 @@ const Reports = () => {
     
     return ((lastValue - firstValue) / firstValue) * 100;
   };
+
+  const getMobileFriendlyDateLabel = (value: number) => {
+    const date = new Date(value);
+    if (isMobile) {
+      return new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+      }).format(date);
+    }
+    return getDateFormatter(timeRange)(date);
+  };
+
+  const mobileXAxisInterval = isMobile ? Math.max(1, Math.floor(chartData.length / 3)) : 0;
 
   const handleExportPDF = async () => {
     if (!reportsRef.current || !manaRewardData || !dashboardStats) return;
@@ -589,34 +609,34 @@ const Reports = () => {
   };
 
   return (
-    <div className="h-full bg-background p-4 md:p-6 lg:p-8">
-      <div className="mb-4 md:mb-6 flex flex-col gap-3 md:gap-4 md:flex-row md:items-start md:justify-between">
+    <div className="w-full max-w-full bg-background overflow-x-hidden pb-6">
+      <div className="mb-3 md:mb-6 flex flex-col gap-2 md:gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold">Reports</h1>
+          <h1 className="text-lg sm:text-xl md:text-2xl font-bold">Reports</h1>
           <p className="text-xs md:text-sm text-muted-foreground mt-1">
             View analytics and statistics
           </p>
           {chartData.length > 0 && (
             <>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-[11px] sm:text-xs text-muted-foreground mt-1">
                 Data Range: {getDateRangeText()}
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] sm:text-xs text-muted-foreground">
                 {getAggregationNote()}
               </p>
             </>
           )}
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 md:gap-3">
+        <div className="flex flex-col sm:flex-row gap-2 md:gap-3 w-full md:w-auto max-w-full">
           <Button
             onClick={handleExportPDF}
             variant="outline"
-            className="gap-2 w-full sm:w-auto text-sm"
+            className="gap-2 w-full sm:w-auto text-sm justify-center"
             disabled={loading || chartData.length === 0}
           >
             <IconDownload className="h-4 w-4" />
             <span className="hidden sm:inline">Export Comprehensive PDF</span>
-            <span className="sm:hidden">Export PDF</span>
+            <span className="sm:hidden">Export</span>
           </Button>
           <Select value={timeRange} onValueChange={setTimeRange}>
             <SelectTrigger className="w-full sm:w-[180px]">
@@ -644,7 +664,7 @@ const Reports = () => {
         </div>
       </div>
 
-      <div ref={reportsRef} className="space-y-6">
+      <div ref={reportsRef} className="space-y-3 sm:space-y-6 pb-4">
         {loading ? (
           <div className="flex justify-center items-center h-[300px]">
             <p className="text-muted-foreground">Loading charts...</p>
@@ -657,14 +677,14 @@ const Reports = () => {
           <>
       
         {/* Line Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg md:text-xl">Line Chart - {getChartLabel()}</CardTitle>
+        <Card className="overflow-hidden">
+          <CardHeader className="pb-2 sm:pb-4">
+            <CardTitle className="text-base sm:text-lg md:text-xl">Line Chart - {getChartLabel()}</CardTitle>
             <CardDescription className="text-xs md:text-sm">{getTimeRangeLabel()}</CardDescription>
           </CardHeader>
-          <CardContent>
-            <ChartContainer config={chartConfig} className="h-[300px] w-full">
-              <LineChart
+          <CardContent className="pt-0 sm:pt-2 px-1 sm:px-6">
+            <ChartContainer config={chartConfig} className="h-[240px] sm:h-[300px] w-full">
+                  <LineChart
                 accessibilityLayer
                 data={(() => {
                   const mappedData = chartData.map((d) => ({
@@ -676,8 +696,9 @@ const Reports = () => {
                   return mappedData;
                 })()}
                 margin={{
-                  left: 12,
-                  right: 12,
+                  left: isMobile ? 0 : 12,
+                  right: isMobile ? 0 : 12,
+                  bottom: 8,
                 }}              >
                 <CartesianGrid vertical={false} />
                 <XAxis
@@ -685,13 +706,14 @@ const Reports = () => {
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
-                  minTickGap={32}
-                  tickFormatter={(value) => {
-                    const date = new Date(value);
-                    return getDateFormatter(timeRange)(date);
-                  }}
+                  interval={mobileXAxisInterval}
+                  minTickGap={isMobile ? 56 : 32}
+                  tick={{ fontSize: isMobile ? 9 : 12 }}
+                  tickFormatter={(value) => getMobileFriendlyDateLabel(value)}
                 />
                 <YAxis
+                  width={isMobile ? 24 : 60}
+                  hide={isMobile}
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
@@ -719,20 +741,20 @@ const Reports = () => {
                     r: 6,
                   }}
                 />
-              </LineChart>
-            </ChartContainer>
+                  </LineChart>
+                </ChartContainer>
           </CardContent>
         </Card>
 
         {/* Bar Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg md:text-xl">Bar Chart - {getChartLabel()}</CardTitle>
+        <Card className="overflow-hidden">
+          <CardHeader className="pb-2 sm:pb-4">
+            <CardTitle className="text-base sm:text-lg md:text-xl">Bar Chart - {getChartLabel()}</CardTitle>
             <CardDescription className="text-xs md:text-sm">{getTimeRangeLabel()}</CardDescription>
           </CardHeader>
-          <CardContent>
-            <ChartContainer config={chartConfig} className="h-[300px] w-full">
-              <BarChart
+          <CardContent className="pt-0 sm:pt-2 px-1 sm:px-6">
+            <ChartContainer config={chartConfig} className="h-[240px] sm:h-[300px] w-full">
+                  <BarChart
                 accessibilityLayer
                 data={(() => {
                   const mappedData = chartData.map((d) => ({
@@ -744,8 +766,9 @@ const Reports = () => {
                   return mappedData;
                 })()}
                 margin={{
-                  left: 12,
-                  right: 12,
+                  left: isMobile ? 0 : 12,
+                  right: isMobile ? 0 : 12,
+                  bottom: 8,
                 }}
               >
                 <CartesianGrid vertical={false} />
@@ -754,13 +777,14 @@ const Reports = () => {
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
-                  minTickGap={32}
-                  tickFormatter={(value) => {
-                    const date = new Date(value);
-                    return getDateFormatter(timeRange)(date);
-                  }}
+                  interval={mobileXAxisInterval}
+                  minTickGap={isMobile ? 56 : 32}
+                  tick={{ fontSize: isMobile ? 9 : 12 }}
+                  tickFormatter={(value) => getMobileFriendlyDateLabel(value)}
                 />
                 <YAxis
+                  width={isMobile ? 24 : 60}
+                  hide={isMobile}
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
@@ -776,15 +800,15 @@ const Reports = () => {
                   content={<CustomChartTooltip currencyFormatter={currencyFormatter} chartType={chartType} />}
                 />
                 <Bar dataKey="value" fill={getChartColor()} />
-              </BarChart>
-            </ChartContainer>
+                  </BarChart>
+                </ChartContainer>
           </CardContent>
         </Card>
 
         {/* Pie Chart */}
         <Card className="flex flex-col">
           <CardHeader className="items-center pb-0">
-            <CardTitle className="text-lg md:text-xl">Distribution Chart - {getChartLabel()}</CardTitle>
+            <CardTitle className="text-base sm:text-lg md:text-xl">Distribution Chart - {getChartLabel()}</CardTitle>
             <CardDescription className="text-xs md:text-sm">{getTimeRangeLabel()}</CardDescription>
           </CardHeader>
           <CardContent className="flex-1 pb-0">
@@ -824,7 +848,7 @@ const Reports = () => {
                 
                 return config;
               })()}
-              className="mx-auto aspect-square max-h-[300px]"
+              className="mx-auto aspect-square max-h-[240px] sm:max-h-[300px]"
             >
               <PieChart>
                 <ChartTooltip
@@ -886,11 +910,15 @@ const Reports = () => {
                             <tspan
                               x={viewBox.cx}
                               y={viewBox.cy}
-                              className="fill-foreground text-3xl font-bold"
+                              className="fill-foreground text-xl sm:text-3xl font-bold"
                             >
-                              {chartType === "users" 
-                                ? stats.total.toLocaleString()
-                                : currencyFormatter(stats.total).replace("PHP ", "₱")
+                              {chartType === "users"
+                                ? (isMobile && stats.total >= 1000
+                                    ? `${Math.round(stats.total / 1000)}k`
+                                    : stats.total.toLocaleString())
+                                : (isMobile && stats.total >= 1000
+                                    ? `₱${Math.round(stats.total / 1000)}k`
+                                    : currencyFormatter(stats.total).replace("PHP ", "₱"))
                               }
                             </tspan>
                             <tspan
@@ -909,9 +937,9 @@ const Reports = () => {
               </PieChart>
             </ChartContainer>
           </CardContent>
-          <div className="flex-col gap-2 text-sm p-6 pt-3">
+          <div className="flex flex-col gap-2 text-sm p-4 sm:p-6 pt-2 sm:pt-3">
             {calculateTrend() !== 0 && (
-              <div className="flex items-center gap-2 leading-none font-medium">
+              <div className="flex items-center gap-2 leading-none font-medium flex-wrap">
                 {calculateTrend() > 0 ? "Trending up" : "Trending down"} by {Math.abs(calculateTrend()).toFixed(1)}% <TrendingUp className="h-4 w-4" />
               </div>
             )}

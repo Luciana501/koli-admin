@@ -8,8 +8,10 @@ const { expireRewardCodes, expireRewardCodesHttp } = require('./expireRewards');
 
 // Import the deleteUser function
 const { deleteUserAccount } = require('./deleteUser');
+const { handleODHexWithdrawalRejectionRefund } = require('./odhexRefunds');
 
 // Export the functions
 exports.expireRewardCodes = expireRewardCodes;
 exports.expireRewardCodesHttp = expireRewardCodesHttp;
 exports.deleteUserAccount = deleteUserAccount;
+exports.handleODHexWithdrawalRejectionRefund = handleODHexWithdrawalRejectionRefund;

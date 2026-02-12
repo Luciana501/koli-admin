@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Withdrawal, ODHexWithdrawal } from "@/types/admin";
-import { subscribeToWithdrawals, updateWithdrawalStatus, subscribeToODHexWithdrawals, updateODHexWithdrawalStatus } from "@/services/firestore";
+import { updateWithdrawalStatus, subscribeToODHexWithdrawals, updateODHexWithdrawalStatus } from "@/services/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { IconSend, IconCheck, IconEye, IconX, IconFilter, IconSearch } from "@tabler/icons-react";
 import {
@@ -54,7 +54,7 @@ const Withdrawals = () => {
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<GroupedWithdrawal | null>(null);
-  const [activeTab, setActiveTab] = useState<"pending" | "history" | "returns" | "odhex">("pending");
+  const [activeTab, setActiveTab] = useState<"history" | "odhex">("odhex");
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectNote, setRejectNote] = useState("");
   const [rejectGroup, setRejectGroup] = useState<GroupedWithdrawal | null>(null);
@@ -81,21 +81,15 @@ const Withdrawals = () => {
   
   const { adminType } = useAuth();
   const { toast } = useToast();
-  const itemsPerPage = 5;
+  const itemsPerPage = 50;
 
   useEffect(() => {
     let errorTimeout: NodeJS.Timeout;
-    
-    // Subscribe to real-time withdrawals updates
-    const unsubscribe = subscribeToWithdrawals((data) => {
-      setWithdrawals(data);
-      setLoading(false);
-      setConnectionError(false);
-    });
 
     // Subscribe to ODHex withdrawals
     const unsubscribeODHex = subscribeToODHexWithdrawals((data) => {
       setODHexWithdrawals(data);
+      setLoading(false);
       setConnectionError(false);
     });
 
@@ -109,7 +103,6 @@ const Withdrawals = () => {
 
     // Cleanup subscriptions on unmount
     return () => {
-      unsubscribe();
       unsubscribeODHex();
       clearTimeout(errorTimeout);
     };
@@ -205,9 +198,11 @@ const Withdrawals = () => {
     return Array.from(groups.values());
   }, [withdrawals, adminType, searchTerm, statusFilter, amountFilter, paymentMethodFilter, withdrawalTypeFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
-  // Group history withdrawals (approved) with filtering
+  // Group history withdrawals (processed) with filtering
   const groupedHistory = useMemo(() => {
-    let history = withdrawals.filter((w) => w.status === "approved" || w.status === "sent");
+    let history = withdrawals.filter(
+      (w) => w.status === "approved" || w.status === "sent" || w.status === "returned"
+    );
     
     // Apply the same filters as pending withdrawals
     history = history.filter((withdrawal) => {
@@ -290,7 +285,7 @@ const Withdrawals = () => {
     return Array.from(groups.values());
   }, [withdrawals, searchTerm, amountFilter, paymentMethodFilter, withdrawalTypeFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
-  // Group returns (rejected by finance, for main admin only) with filtering
+  // Group returns (rejected by finance, for developer admin only) with filtering
   const groupedReturns = useMemo(() => {
     let returns = withdrawals.filter((w) => w.status === "rejected");
     
@@ -381,7 +376,9 @@ const Withdrawals = () => {
       // Search filter
       const matchesSearch = !searchTerm ||
         w.userEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        w.userId.includes(searchTerm);
+        w.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        w.accountDetails.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        w.provider.toLowerCase().includes(searchTerm.toLowerCase());
       
       // Amount filter
       let matchesAmount = true;
@@ -406,6 +403,14 @@ const Withdrawals = () => {
       // Payment method filter (provider in ODHex)
       const matchesPaymentMethod = !paymentMethodFilter || paymentMethodFilter === "all" || 
         w.provider.toLowerCase().includes(paymentMethodFilter.toLowerCase());
+
+      // Withdrawal method filter (ODHex method: ewallet | bank)
+      const matchesMethod = !withdrawalTypeFilter || withdrawalTypeFilter === "all" ||
+        w.method.toLowerCase() === withdrawalTypeFilter.toLowerCase();
+
+      // Status filter (history statuses)
+      const matchesStatus = !statusFilter || statusFilter === "all" ||
+        w.status.toLowerCase() === statusFilter.toLowerCase();
       
       // Date range filter
       let matchesDate = true;
@@ -420,20 +425,21 @@ const Withdrawals = () => {
         matchesDate = withdrawalDate <= toDate;
       }
       
-      return matchesSearch && matchesAmount && matchesPaymentMethod && matchesDate;
+      return matchesSearch && matchesAmount && matchesPaymentMethod && matchesMethod && matchesStatus && matchesDate;
     });
     
     return filtered;
-  }, [odhexWithdrawals, searchTerm, amountFilter, paymentMethodFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
+  }, [odhexWithdrawals, searchTerm, amountFilter, paymentMethodFilter, withdrawalTypeFilter, statusFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
-  const pendingODHexWithdrawals = filteredODHexWithdrawals.filter(w => w.status === "pending");
-  const completedODHexWithdrawals = filteredODHexWithdrawals.filter(w => w.status === "completed");
-  const rejectedODHexWithdrawals = filteredODHexWithdrawals.filter(w => w.status === "rejected");
+  const odhexActiveWithdrawals = filteredODHexWithdrawals.filter((w) => w.status === "pending");
+  const odhexHistoryWithdrawals = filteredODHexWithdrawals.filter(
+    (w) => w.status === "completed" || w.status === "rejected"
+  );
 
   const totalPages = Math.ceil(groupedWithdrawals.length / itemsPerPage);
-  const historyTotalPages = Math.ceil(groupedHistory.length / itemsPerPage);
+  const historyTotalPages = Math.ceil(odhexHistoryWithdrawals.length / itemsPerPage);
   const returnsTotalPages = Math.ceil(groupedReturns.length / itemsPerPage);
-  const odhexTotalPages = Math.ceil(pendingODHexWithdrawals.length / itemsPerPage);
+  const odhexTotalPages = Math.ceil(odhexActiveWithdrawals.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const historyStartIndex = (historyPage - 1) * itemsPerPage;
   const returnsStartIndex = (returnsPage - 1) * itemsPerPage;
@@ -442,7 +448,7 @@ const Withdrawals = () => {
     startIndex,
     startIndex + itemsPerPage
   );
-  const paginatedHistory = groupedHistory.slice(
+  const paginatedHistory = odhexHistoryWithdrawals.slice(
     historyStartIndex,
     historyStartIndex + itemsPerPage
   );
@@ -450,7 +456,7 @@ const Withdrawals = () => {
     returnsStartIndex,
     returnsStartIndex + itemsPerPage
   );
-  const paginatedODHex = pendingODHexWithdrawals.slice(
+  const paginatedODHex = odhexActiveWithdrawals.slice(
     odhexStartIndex,
     odhexStartIndex + itemsPerPage
   );
@@ -496,7 +502,7 @@ const Withdrawals = () => {
         });
       }
     } else {
-      // Main admin sends to finance
+      // Developer admin sends to finance
       const promises = withdrawalIds.map((id) =>
         updateWithdrawalStatus(id, "sent", adminType || "")
       );
@@ -535,7 +541,7 @@ const Withdrawals = () => {
       
       toast({
         title: "Withdrawal Rejected",
-        description: "Withdrawal(s) have been rejected and returned to the main admin.",
+        description: "Withdrawal(s) have been rejected and returned to the developer admin.",
         variant: "destructive",
       });
       
@@ -712,7 +718,7 @@ const Withdrawals = () => {
 
   if (loading) {
     return (
-      <div>
+      <div className="p-2 sm:p-4 md:p-6 lg:p-8">
         <div className="flex items-center justify-center h-64">
           <p className="text-muted-foreground">Loading withdrawals...</p>
         </div>
@@ -721,9 +727,9 @@ const Withdrawals = () => {
   }
 
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div className="p-0">
       {connectionError && (
-        <div className="mb-4 p-3 md:p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+        <div className="mb-4 p-2 sm:p-3 md:p-4 mx-2 sm:mx-4 md:mx-6 lg:mx-8 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
           <div className="flex items-start gap-3">
             <IconX className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
@@ -741,30 +747,20 @@ const Withdrawals = () => {
           </div>
         </div>
       )}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 md:mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 md:mb-6 px-2 sm:px-4 md:px-6 lg:px-8">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold">Withdrawals</h1>
-          <p className="text-sm md:text-base text-muted-foreground mt-1">
+          <h1 className="text-lg sm:text-xl md:text-2xl font-bold">ODHex Withdrawals</h1>
+          <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-1">
             {isFinanceAdmin
-              ? "Review and process withdrawal requests"
-              : "Manage withdrawal requests"}
+              ? "Review and process ODHex withdrawal requests"
+              : "View ODHex withdrawal requests"}
           </p>
         </div>
-        {isFinanceAdmin && selectedGroupIds.length > 0 && activeTab === "pending" && (
-          <button
-            onClick={handleApproveSelected}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-md text-sm md:text-base font-medium hover:opacity-90 transition-opacity w-full sm:w-auto"
-          >
-            <IconCheck className="h-4 w-4" />
-            <span className="hidden sm:inline">Approve Selected ({selectedGroupIds.length})</span>
-            <span className="sm:hidden">Approve ({selectedGroupIds.length})</span>
-          </button>
-        )}
       </div>
       
       {/* Search and Filters */}
-      <div className="mb-6">
-        <div className="flex flex-col sm:flex-row gap-3 mb-4">
+      <div className="mb-6 px-2 sm:px-4 md:px-6 lg:px-8">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mb-4">
           <div className="relative flex-1 sm:max-w-md">
             <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
@@ -776,7 +772,7 @@ const Withdrawals = () => {
                 setHistoryPage(1);
                 setReturnsPage(1);
               }}
-              placeholder="Search by user name, email, or phone..."
+              placeholder="Search by email, user ID, account or provider..."
               className="w-full pl-10 pr-4 py-2 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
@@ -831,24 +827,38 @@ const Withdrawals = () => {
                   <SelectContent>
                     <SelectItem value="all">All Methods</SelectItem>
                     <SelectItem value="gcash">GCash</SelectItem>
-                    <SelectItem value="bank">Bank Transfer</SelectItem>
-                    <SelectItem value="paypal">PayPal</SelectItem>
                     <SelectItem value="maya">Maya</SelectItem>
+                    <SelectItem value="bank">Bank</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               
-              {/* Withdrawal Type */}
+              {/* Withdrawal Method */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Withdrawal Type</label>
+                <label className="text-sm font-medium">Withdrawal Method</label>
                 <Select value={withdrawalTypeFilter} onValueChange={setWithdrawalTypeFilter}>
                   <SelectTrigger className="h-9">
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="regular">Regular</SelectItem>
-                    <SelectItem value="pooled">Pooled</SelectItem>
+                    <SelectItem value="all">All Methods</SelectItem>
+                    <SelectItem value="ewallet">E-wallet</SelectItem>
+                    <SelectItem value="bank">Bank</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Status */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Status</label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -897,7 +907,7 @@ const Withdrawals = () => {
             </div>
             
             <div className="mt-4 text-sm text-muted-foreground">
-              Showing {groupedWithdrawals.length} withdrawal groups
+              Showing {activeTab === "odhex" ? odhexActiveWithdrawals.length : odhexHistoryWithdrawals.length} withdrawals
               {hasActiveFilters && " (filtered)"}
             </div>
           </div>
@@ -905,246 +915,38 @@ const Withdrawals = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-4 border-b border-border overflow-x-auto">
-        <button
-          onClick={() => setActiveTab("pending")}
-          className={`px-3 md:px-4 py-2 text-xs md:text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
-            activeTab === "pending"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Pending ({groupedWithdrawals.length})
-        </button>
-        <button
-          onClick={() => setActiveTab("history")}
-          className={`px-3 md:px-4 py-2 text-xs md:text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
-            activeTab === "history"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          History ({groupedHistory.length})
-        </button>
-        {!isFinanceAdmin && (
-          <button
-            onClick={() => setActiveTab("returns")}
-            className={`px-3 md:px-4 py-2 text-xs md:text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
-              activeTab === "returns"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Returns ({groupedReturns.length})
-          </button>
-        )}
+      <div className="flex gap-1 mb-4 border-b border-border overflow-x-auto px-2 sm:px-4 md:px-6 lg:px-8">
         <button
           onClick={() => setActiveTab("odhex")}
-          className={`px-3 md:px-4 py-2 text-xs md:text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${
+          className={`px-2 sm:px-3 md:px-4 py-2 text-xs font-medium transition-colors border-b-2 whitespace-nowrap ${
             activeTab === "odhex"
               ? "border-primary text-primary"
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
         >
-          ODHex ({pendingODHexWithdrawals.length})
+          ODHex Withdrawals ({odhexActiveWithdrawals.length})
+        </button>
+        <button
+          onClick={() => setActiveTab("history")}
+          className={`px-2 sm:px-3 md:px-4 py-2 text-xs font-medium transition-colors border-b-2 whitespace-nowrap ${
+            activeTab === "history"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          History ({odhexHistoryWithdrawals.length})
         </button>
       </div>
 
-      {activeTab === "pending" && (
-      <div className="bg-card border border-border rounded-lg">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px]">
-            <thead>
-              <tr className="border-b border-border bg-muted/50">
-                {isFinanceAdmin && (
-                  <th className="w-12 px-4 py-3">
-                    <input
-                      type="checkbox"
-                      checked={
-                        selectedGroupIds.length === groupedWithdrawals.length &&
-                        groupedWithdrawals.length > 0
-                      }
-                      onChange={handleSelectAll}
-                      className="h-4 w-4 rounded border-input accent-primary"
-                    />
-                  </th>
-                )}
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  #
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  User
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Contact
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Amount
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Payment Method
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Withdrawals
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Requested At
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Status
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedGroups.map((group, index) => (
-                <tr
-                  key={group.id}
-                  className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
-                >
-                  {isFinanceAdmin && (
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedGroupIds.includes(group.id)}
-                        onChange={() => handleSelectGroup(group.id)}
-                        className="h-4 w-4 rounded border-input accent-primary"
-                      />
-                    </td>
-                  )}
-                  <td className="px-4 py-3 text-sm">{startIndex + index + 1}</td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm font-medium">{group.userName}</div>
-                    <div className="text-xs text-muted-foreground">{group.userEmail}</div>
-                  </td>
-                  <td className="px-4 py-3 text-sm">{group.userPhone}</td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm font-medium">₱{(group.withdrawals[0].netAmount || group.amount).toLocaleString()}</div>
-                    {group.withdrawals[0].platformFee && (
-                      <div className="text-xs text-red-600">Fee: ₱{group.withdrawals[0].platformFee.toLocaleString()}</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm">{group.paymentMethod}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-xs">
-                      <div className="font-medium">{group.withdrawals.length} withdrawal{group.withdrawals.length > 1 ? 's' : ''}</div>
-                      {group.isPooled && (
-                        <div className="text-muted-foreground">Pooled Request</div>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {new Date(group.requestedAt).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      (adminType === "finance") ? "bg-primary/10 text-primary" : "bg-warning/10 text-warning"
-                    }`}>
-                      {(adminType === "finance") ? "For Approval" : "Pending"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleViewDetails(group)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
-                      >
-                        <IconEye className="h-3.5 w-3.5" />
-                        View
-                      </button>
-                      {adminType === "finance" ? (
-                        <>
-                          <button
-                            onClick={() => handleApproveGroup(group)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
-                          >
-                            <IconCheck className="h-3.5 w-3.5" />
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleRejectGroup(group)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
-                          >
-                            <IconX className="h-3.5 w-3.5" />
-                            Reject
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => handleApproveGroup(group)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
-                        >
-                          <IconSend className="h-3.5 w-3.5" />
-                          Send
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {groupedWithdrawals.length > 0 && (
-          <div className="p-4 border-t border-border flex flex-col md:flex-row items-center justify-between gap-4">
-            {!isFinanceAdmin && (
-              <button
-                onClick={handleSendAll}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
-              >
-                <IconSend className="h-4 w-4" />
-                Send All to Finance Team
-              </button>
-            )}
-            <div className="md:ml-auto">
-              <Pagination>
-                <PaginationContent>
-                  <PaginationItem>
-                    <PaginationPrevious
-                      onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                    />
-                  </PaginationItem>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                    <PaginationItem key={page}>
-                      <PaginationLink
-                        onClick={() => setCurrentPage(page)}
-                        isActive={page === currentPage}
-                        className="cursor-pointer"
-                      >
-                        {page}
-                      </PaginationLink>
-                    </PaginationItem>
-                  ))}
-                  <PaginationItem>
-                    <PaginationNext
-                      onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                    />
-                  </PaginationItem>
-                </PaginationContent>
-              </Pagination>
-            </div>
-          </div>
-        )}
-
-        {groupedWithdrawals.length === 0 && (
-          <div className="p-8 text-center text-muted-foreground">
-            No pending withdrawals
-          </div>
-        )}
-      </div>
-      )}
-
       {activeTab === "history" && (
+      odhexHistoryWithdrawals.length === 0 ? (
+      <div className="bg-card border border-border rounded-lg p-6 sm:p-8 text-center text-muted-foreground mx-2 sm:mx-4 md:mx-6 lg:mx-8">
+        No ODHex history found
+      </div>
+      ) : (
       <div className="bg-card border border-border rounded-lg">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px]">
+        <div className="overflow-x-auto max-h-[65vh] overflow-y-auto">
+          <table className="w-full min-w-[1000px]">
             <thead>
               <tr className="border-b border-border bg-muted/50">
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
@@ -1154,19 +956,10 @@ const Withdrawals = () => {
                   User
                 </th>
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Contact
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
                   Amount
                 </th>
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Payment Method
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Withdrawals
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Requested At
+                  Method
                 </th>
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
                   Processed At
@@ -1180,57 +973,44 @@ const Withdrawals = () => {
               </tr>
             </thead>
             <tbody>
-              {paginatedHistory.map((group, index) => {
-                const firstWithdrawal = group.withdrawals[0];
-                const status = firstWithdrawal.status;
+              {paginatedHistory.map((withdrawal, index) => {
                 return (
                   <tr
-                    key={group.id}
+                    key={withdrawal.id}
                     className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
                   >
                     <td className="px-4 py-3 text-sm">{historyStartIndex + index + 1}</td>
                     <td className="px-4 py-3">
-                      <div className="text-sm font-medium">{group.userName}</div>
-                      <div className="text-xs text-muted-foreground">{group.userEmail}</div>
-                    </td>
-                    <td className="px-4 py-3 text-sm">{group.userPhone}</td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium">₱{(group.withdrawals[0].netAmount || group.amount).toLocaleString()}</div>
-                      {group.withdrawals[0].platformFee && (
-                        <div className="text-xs text-red-600">Fee: ₱{group.withdrawals[0].platformFee.toLocaleString()}</div>
-                      )}
+                      <div className="text-sm font-medium">{withdrawal.userEmail}</div>
+                      <div className="text-xs text-muted-foreground truncate max-w-[200px]">ID: {withdrawal.userId}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-sm">{group.paymentMethod}</div>
+                      <div className="text-sm font-semibold">₱{withdrawal.amount.toLocaleString()}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-xs">
-                        <div className="font-medium">{group.withdrawals.length} withdrawal{group.withdrawals.length > 1 ? 's' : ''}</div>
-                        {group.isPooled && (
-                          <div className="text-muted-foreground">Pooled Request</div>
-                        )}
-                      </div>
+                      <div className="text-sm capitalize">{withdrawal.method} • {withdrawal.provider}</div>
+                      <div className="text-xs text-muted-foreground font-mono">{withdrawal.accountDetails}</div>
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      {new Date(group.requestedAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      {firstWithdrawal.processedAt 
-                        ? new Date(firstWithdrawal.processedAt).toLocaleDateString()
+                      {withdrawal.processedAt 
+                        ? new Date(withdrawal.processedAt).toLocaleString()
                         : '-'}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        status === "approved" || status === "sent"
-                          ? "bg-green-500/10 text-green-600"
-                          : "bg-red-500/10 text-red-600"
+                        withdrawal.status === "completed"
+                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                          : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
                       }`}>
-                        {status === "sent" ? "Approved" : status.charAt(0).toUpperCase() + status.slice(1)}
+                        {withdrawal.status === "completed" ? "Completed" : "Rejected"}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => handleViewDetails(group)}
+                        onClick={() => {
+                          setSelectedOdhexWithdrawal(withdrawal);
+                          setOdhexViewModalOpen(true);
+                        }}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
                       >
                         <IconEye className="h-3.5 w-3.5" />
@@ -1244,7 +1024,7 @@ const Withdrawals = () => {
           </table>
         </div>
 
-        {groupedHistory.length > 0 && (
+        {odhexHistoryWithdrawals.length > 0 && (
           <div className="p-4 border-t border-border flex justify-end">
             <Pagination>
               <PaginationContent>
@@ -1276,137 +1056,20 @@ const Withdrawals = () => {
           </div>
         )}
 
-        {groupedHistory.length === 0 && (
-          <div className="p-8 text-center text-muted-foreground">
-            No withdrawal history
-          </div>
-        )}
       </div>
+      )
       )}
 
-      {activeTab === "returns" && !isFinanceAdmin && (
-      <div className="bg-card border border-border rounded-lg">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px]">
-            <thead>
-              <tr className="border-b border-border bg-muted/50">
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  #
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  User
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Contact
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Amount
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Payment Method
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Finance Note
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Rejected At
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedReturns.map((group, index) => {
-                const firstWithdrawal = group.withdrawals[0];
-                return (
-                  <tr
-                    key={group.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
-                  >
-                    <td className="px-4 py-3 text-sm">{returnsStartIndex + index + 1}</td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium">{group.userName}</div>
-                      <div className="text-xs text-muted-foreground">{group.userEmail}</div>
-                    </td>
-                    <td className="px-4 py-3 text-sm">{group.userPhone}</td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium">₱{(group.withdrawals[0].netAmount || group.amount).toLocaleString()}</div>
-                      {group.withdrawals[0].platformFee && (
-                        <div className="text-xs text-red-600">Fee: ₱{group.withdrawals[0].platformFee.toLocaleString()}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm">{group.paymentMethod}</div>
-                    </td>
-                    <td className="px-4 py-3 text-sm max-w-[200px] truncate">
-                      {firstWithdrawal.financeNote || "-"}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      {firstWithdrawal.processedAt 
-                        ? new Date(firstWithdrawal.processedAt).toLocaleDateString()
-                        : '-'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleReturnToUser(group)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
-                      >
-                        <IconSend className="h-3.5 w-3.5" />
-                        Return to User
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {groupedReturns.length > 0 && (
-          <div className="p-4 border-t border-border flex justify-end">
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  <PaginationPrevious
-                    onClick={() => setReturnsPage(Math.max(1, returnsPage - 1))}
-                    className={returnsPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-                {Array.from({ length: returnsTotalPages }, (_, i) => i + 1).map((page) => (
-                  <PaginationItem key={page}>
-                    <PaginationLink
-                      onClick={() => setReturnsPage(page)}
-                      isActive={page === returnsPage}
-                      className="cursor-pointer"
-                    >
-                      {page}
-                    </PaginationLink>
-                  </PaginationItem>
-                ))}
-                <PaginationItem>
-                  <PaginationNext
-                    onClick={() => setReturnsPage(Math.min(returnsTotalPages, returnsPage + 1))}
-                    className={returnsPage === returnsTotalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
-          </div>
-        )}
-
-        {groupedReturns.length === 0 && (
-          <div className="p-8 text-center text-muted-foreground">
-            No returned withdrawals
-          </div>
-        )}
-      </div>
-      )}
 
       {/* ODHex Withdrawals Tab */}
       {activeTab === "odhex" && (
+      odhexActiveWithdrawals.length === 0 ? (
+      <div className="bg-card border border-border rounded-lg p-6 sm:p-8 text-center text-muted-foreground mx-2 sm:mx-4 md:mx-6 lg:mx-8">
+        No active ODHex withdrawals
+      </div>
+      ) : (
       <div className="bg-card border border-border rounded-lg">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[65vh] overflow-y-auto">
           <table className="w-full min-w-[1000px]">
             <thead>
               <tr className="border-b border-border bg-muted/50">
@@ -1534,12 +1197,8 @@ const Withdrawals = () => {
           </div>
         )}
 
-        {pendingODHexWithdrawals.length === 0 && (
-          <div className="p-8 text-center text-muted-foreground">
-            No ODHex withdrawals pending
-          </div>
-        )}
       </div>
+      )
       )}
 
       {/* Reject Modal (Finance Admin) */}
@@ -1548,7 +1207,7 @@ const Withdrawals = () => {
           <DialogHeader>
             <DialogTitle>Reject Withdrawal</DialogTitle>
             <DialogDescription>
-              Please provide a reason for rejection. This will be sent to the main admin.
+              Please provide a reason for rejection. This will be sent to the developer admin.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1579,7 +1238,7 @@ const Withdrawals = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Return to User Modal (Main Admin) */}
+      {/* Return to User Modal (Developer Admin) */}
       <Dialog open={returnModalOpen} onOpenChange={setReturnModalOpen}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
@@ -1926,8 +1585,8 @@ const Withdrawals = () => {
                 </div>
               )}
 
-              {/* Action Buttons (only if pending) */}
-              {selectedOdhexWithdrawal.status === "pending" && (
+              {/* Action Buttons (finance only, and only if pending) */}
+              {selectedOdhexWithdrawal.status === "pending" && isFinanceAdmin && (
                 <div className="border-t pt-4 space-y-4">
                   <div className="flex flex-col sm:flex-row gap-3">
                     <button
@@ -1973,6 +1632,14 @@ const Withdrawals = () => {
                       Reject Withdrawal
                     </button>
                   </div>
+                </div>
+              )}
+
+              {selectedOdhexWithdrawal.status === "pending" && !isFinanceAdmin && (
+                <div className="border-t pt-4">
+                  <p className="text-sm text-muted-foreground">
+                    View only. Only finance admin can process ODHex withdrawals.
+                  </p>
                 </div>
               )}
             </div>

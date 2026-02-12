@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { subscribeToUsers, subscribeToWithdrawals, subscribeToKYC, updateKYCStatus } from "@/services/firestore";
+import { subscribeToUsers, subscribeToODHexWithdrawals, subscribeToKYC, updateKYCStatus, subscribeToDonations } from "@/services/firestore";
 import { IconUsers, IconCash, IconArrowUpRight, IconWallet } from "@tabler/icons-react";
+import { ODHexWithdrawal, Donation, User } from "@/types/admin";
 
 const Dashboard = () => {
   const { adminType } = useAuth();
@@ -10,9 +11,10 @@ const Dashboard = () => {
     totalDonations: 0,
     totalAssets: 0,
     pendingWithdrawals: 0,
+    pendingWithdrawalAmount: 0,
   });
-  const [recentUsers, setRecentUsers] = useState<any[]>([]);
-  const [recentWithdrawals, setRecentWithdrawals] = useState<any[]>([]);
+  const [recentUsers, setRecentUsers] = useState<User[]>([]);
+  const [recentWithdrawals, setRecentWithdrawals] = useState<ODHexWithdrawal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [kycUsers, setKycUsers] = useState<any[]>([]);
@@ -26,20 +28,19 @@ const Dashboard = () => {
       totalDonations: 0,
       totalAssets: 0,
       pendingWithdrawals: 0,
+      pendingWithdrawalAmount: 0,
     });
     setLoading(false);
 
     let unsubscribeKYC = () => {};
+    let unsubscribeDonations = () => {};
     try {
       // Subscribe to real-time users updates
       const unsubscribeUsers = subscribeToUsers((users) => {
-        // ...existing code...
-        const totalDonations = users.reduce((sum, user) => sum + (user.donationAmount || 0), 0);
         const totalAssets = users.reduce((sum, user) => sum + (user.totalAsset || 0), 0);
         setStats((prev) => ({
           ...prev,
           totalUsers: users.length,
-          totalDonations,
           totalAssets,
         }));
         setRecentUsers(users.slice(0, 5));
@@ -47,19 +48,33 @@ const Dashboard = () => {
         setError(null);
       });
 
-      // Subscribe to real-time withdrawals updates
-      const unsubscribeWithdrawals = subscribeToWithdrawals((withdrawals) => {
-        // ...existing code...
-        const pending = withdrawals.filter((w) => w.status === "pending").length;
+      // Subscribe to real-time ODHex withdrawals updates
+      const unsubscribeWithdrawals = subscribeToODHexWithdrawals((withdrawals) => {
+        const pendingRequests = withdrawals.filter((w) => w.status === "pending");
+        const pending = pendingRequests.length;
+        const pendingAmount = pendingRequests.reduce((sum, w) => sum + (w.amount || 0), 0);
         setStats((prev) => ({
           ...prev,
           pendingWithdrawals: pending,
+          pendingWithdrawalAmount: pendingAmount,
         }));
         setRecentWithdrawals(withdrawals.slice(0, 5));
       });
 
-      // Subscribe to KYC only for main admin
-      if (adminType === "main") {
+      // Subscribe to real-time donations updates (approved contracts only)
+      unsubscribeDonations = subscribeToDonations((donations: Donation[]) => {
+        const totalApprovedDonations = donations
+          .filter((donation) => donation.status === "approved")
+          .reduce((sum, donation) => sum + (donation.donationAmount || 0), 0);
+
+        setStats((prev) => ({
+          ...prev,
+          totalDonations: totalApprovedDonations,
+        }));
+      });
+
+      // Subscribe to KYC only for developer admin
+      if (adminType === "developer") {
         unsubscribeKYC = subscribeToKYC((users) => {
           setKycUsers(users.filter(u => u.kycStatus === "PENDING"));
           setKycLoading(false);
@@ -70,6 +85,7 @@ const Dashboard = () => {
       return () => {
         unsubscribeUsers();
         unsubscribeWithdrawals();
+        unsubscribeDonations();
         unsubscribeKYC();
       };
     } catch (err: any) {
@@ -109,25 +125,25 @@ const Dashboard = () => {
       title: "Total Users",
       value: stats.totalUsers.toString(),
       icon: IconUsers,
-      change: "+12%",
+      meta: "Live",
     },
     {
       title: "Total Donations",
       value: `₱${stats.totalDonations.toLocaleString()}`,
       icon: IconWallet,
-      change: "+8%",
+      meta: "Approved",
     },
     {
       title: "Total Principal",
       value: `₱${stats.totalAssets.toLocaleString()}`,
       icon: IconCash,
-      change: "+15%",
+      meta: "Current",
     },
     {
       title: "Pending Withdrawals",
       value: stats.pendingWithdrawals.toString(),
       icon: IconArrowUpRight,
-      change: "Requests",
+      meta: "Requests",
     },
   ];
 
@@ -153,17 +169,16 @@ const Dashboard = () => {
     );
   }
 
-  // Financial Health calculations
+  // Financial Health calculations (all based on live current values)
   const communityReserve = Math.round(stats.totalAssets * 0.7);
-  // Placeholder for current liability: you must replace this with actual matured payout logic if available
-  const currentLiability = 0; // TODO: Calculate sum of all matured 30% payout eligible amounts
+  const currentLiability = stats.pendingWithdrawalAmount;
 
   return (
     <div>
       <div className="mb-6 md:mb-8">
         <h1 className="text-xl md:text-2xl font-bold">Dashboard</h1>
         <p className="text-sm md:text-base text-muted-foreground mt-1">
-          Welcome back, {adminType === "main" ? "Main" : "Finance"} Admin
+          Welcome back, {adminType === "developer" ? "Developer" : "Finance"} Admin
         </p>
       </div>
 
@@ -174,13 +189,13 @@ const Dashboard = () => {
           <span className="text-2xl md:text-3xl font-bold mt-2">₱{communityReserve.toLocaleString()}</span>
         </div>
         <div className="bg-card border border-border rounded-lg p-4 md:p-6 flex flex-col justify-between">
-          <span className="text-muted-foreground text-xs md:text-sm font-medium">Current Liability (Matured 30% Payouts)</span>
+          <span className="text-muted-foreground text-xs md:text-sm font-medium">Current Liability (Pending ODHex Withdrawals)</span>
           <span className="text-2xl md:text-3xl font-bold mt-2">₱{currentLiability.toLocaleString()}</span>
         </div>
       </div>
 
-      {/* Pending KYC Applications for Main Admin */}
-      {adminType === "main" && (
+      {/* Pending KYC Applications for Developer Admin */}
+      {adminType === "developer" && (
         <div className="bg-card border border-border rounded-lg p-4 md:p-6 mb-6">
           <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Pending KYC Applications</h2>
           {kycLoading ? (
@@ -233,7 +248,7 @@ const Dashboard = () => {
             </div>
             <div className="flex items-end justify-between">
               <span className="text-xl md:text-2xl font-bold">{stat.value}</span>
-              <span className="text-xs md:text-sm text-muted-foreground">{stat.change}</span>
+              <span className="text-xs md:text-sm text-muted-foreground">{stat.meta}</span>
             </div>
           </div>
         ))}
@@ -268,9 +283,7 @@ const Dashboard = () => {
         </div>
 
         <div className="bg-card border border-border rounded-lg p-4 md:p-6">
-          <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">
-            Recent Withdrawals
-          </h2>
+          <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Recent ODHex Withdrawals</h2>
           <div className="space-y-3">
             {recentWithdrawals.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4 text-center">No withdrawals yet</p>
@@ -281,7 +294,7 @@ const Dashboard = () => {
                   className="flex items-center justify-between py-2 border-b border-border last:border-0"
                 >
                   <div className="min-w-0 flex-1 pr-4">
-                    <p className="font-medium text-sm md:text-base truncate">{withdrawal.userName}</p>
+                    <p className="font-medium text-sm md:text-base truncate">{withdrawal.userEmail || withdrawal.userId}</p>
                     <p className="text-xs md:text-sm text-muted-foreground">
                       {new Date(withdrawal.requestedAt).toLocaleDateString()}
                     </p>
