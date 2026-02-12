@@ -547,6 +547,81 @@ export const updateWithdrawalStatus = async (
   }
 };
 
+// Real-time listener for ODHex withdrawals
+export const subscribeToODHexWithdrawals = (callback: (withdrawals: import("@/types/admin").ODHexWithdrawal[]) => void) => {
+  const withdrawalsRef = collection(db, "odhexWithdrawals");
+  const q = query(withdrawalsRef, orderBy("requestedAt", "desc"));
+  
+  let retryCount = 0;
+  const maxRetries = 3;
+  
+  const unsubscribe = onSnapshot(
+    q, 
+    {
+      // Add includeMetadataChanges to handle connection state better
+      includeMetadataChanges: false
+    },
+    (snapshot) => {
+      retryCount = 0; // Reset retry count on successful connection
+      const withdrawals: import("@/types/admin").ODHexWithdrawal[] = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          userId: data.userId || "",
+          userEmail: data.userEmail || "",
+          amount: data.amount || 0,
+          method: data.method || "ewallet",
+          provider: data.provider || "",
+          accountDetails: data.accountDetails || "",
+          status: data.status || "pending",
+          requestedAt: data.requestedAt || new Date().toISOString(),
+          processedAt: data.processedAt || null,
+          processedBy: data.processedBy || null,
+          rejectionReason: data.rejectionReason || "",
+        };
+      });
+      callback(withdrawals);
+    }, 
+    (error) => {
+      retryCount++;
+      console.error(`Error listening to ODHex withdrawals (attempt ${retryCount}/${maxRetries}):`, error);
+      
+      // Return empty array but don't prevent retries
+      if (retryCount >= maxRetries) {
+        console.warn("Max retries reached for ODHex withdrawals listener. Returning empty data.");
+      }
+      callback([]);
+    }
+  );
+  
+  return unsubscribe;
+};
+
+// Update ODHex withdrawal status
+export const updateODHexWithdrawalStatus = async (
+  withdrawalId: string,
+  status: "pending" | "completed" | "rejected",
+  processedBy?: string,
+  rejectionReason?: string
+): Promise<boolean> => {
+  try {
+    const withdrawalRef = doc(db, "odhexWithdrawals", withdrawalId);
+    const updateData: any = {
+      status,
+      processedAt: new Date().toISOString(),
+      processedBy: processedBy || "",
+    };
+    if (status === "rejected" && rejectionReason) {
+      updateData.rejectionReason = rejectionReason;
+    }
+    await updateDoc(withdrawalRef, updateData);
+    return true;
+  } catch (error) {
+    console.error("Error updating ODHex withdrawal:", error);
+    return false;
+  }
+};
+
 // Get statistics for dashboard
 export const fetchDashboardStats = async () => {
   try {

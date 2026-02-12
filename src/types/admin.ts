@@ -89,3 +89,18 @@ export interface RewardClaim {
   timeToClaim: number;
   timeToClaimMinutes: number;
 }
+
+export interface ODHexWithdrawal {
+  id: string;
+  userId: string;
+  userEmail: string;
+  amount: number;
+  method: "ewallet" | "bank";
+  provider: string;
+  accountDetails: string;
+  status: "pending" | "completed" | "rejected";
+  requestedAt: string;
+  processedAt: string | null;
+  processedBy?: string | null;
+  rejectionReason?: string;
+}

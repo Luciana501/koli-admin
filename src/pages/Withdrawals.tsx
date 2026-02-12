@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Withdrawal } from "@/types/admin";
-import { subscribeToWithdrawals, updateWithdrawalStatus } from "@/services/firestore";
+import { Withdrawal, ODHexWithdrawal } from "@/types/admin";
+import { subscribeToWithdrawals, updateWithdrawalStatus, subscribeToODHexWithdrawals, updateODHexWithdrawalStatus } from "@/services/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { IconSend, IconCheck, IconEye, IconX, IconFilter, IconSearch } from "@tabler/icons-react";
 import {
@@ -45,14 +45,16 @@ interface GroupedWithdrawal {
 
 const Withdrawals = () => {
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [odhexWithdrawals, setODHexWithdrawals] = useState<ODHexWithdrawal[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
   const [returnsPage, setReturnsPage] = useState(1);
+  const [odhexPage, setOdhexPage] = useState(1);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<GroupedWithdrawal | null>(null);
-  const [activeTab, setActiveTab] = useState<"pending" | "history" | "returns">("pending");
+  const [activeTab, setActiveTab] = useState<"pending" | "history" | "returns" | "odhex">("pending");
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectNote, setRejectNote] = useState("");
   const [rejectGroup, setRejectGroup] = useState<GroupedWithdrawal | null>(null);
@@ -60,6 +62,7 @@ const Withdrawals = () => {
   const [returnNote, setReturnNote] = useState("");
   const [returnGroup, setReturnGroup] = useState<GroupedWithdrawal | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
   
   // Filter states
   const [searchTerm, setSearchTerm] = useState("");
@@ -78,14 +81,35 @@ const Withdrawals = () => {
   const itemsPerPage = 5;
 
   useEffect(() => {
+    let errorTimeout: NodeJS.Timeout;
+    
     // Subscribe to real-time withdrawals updates
     const unsubscribe = subscribeToWithdrawals((data) => {
       setWithdrawals(data);
       setLoading(false);
+      setConnectionError(false);
     });
 
-    // Cleanup subscription on unmount
-    return () => unsubscribe();
+    // Subscribe to ODHex withdrawals
+    const unsubscribeODHex = subscribeToODHexWithdrawals((data) => {
+      setODHexWithdrawals(data);
+      setConnectionError(false);
+    });
+
+    // Set a timeout to show connection error if data doesn't load
+    errorTimeout = setTimeout(() => {
+      if (loading) {
+        setConnectionError(true);
+        setLoading(false);
+      }
+    }, 10000); // 10 seconds
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      unsubscribe();
+      unsubscribeODHex();
+      clearTimeout(errorTimeout);
+    };
   }, []);
 
   // Group withdrawals by userId + requestedAt with filtering
@@ -348,12 +372,69 @@ const Withdrawals = () => {
     return Array.from(groups.values());
   }, [withdrawals, searchTerm, amountFilter, paymentMethodFilter, withdrawalTypeFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
+  // Filter ODHex withdrawals with search and filters
+  const filteredODHexWithdrawals = useMemo(() => {
+    let filtered = odhexWithdrawals.filter((w) => {
+      // Search filter
+      const matchesSearch = !searchTerm ||
+        w.userEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        w.userId.includes(searchTerm);
+      
+      // Amount filter
+      let matchesAmount = true;
+      if (amountFilter && amountFilter !== "all") {
+        switch (amountFilter) {
+          case "low":
+            matchesAmount = w.amount < 10000;
+            break;
+          case "medium":
+            matchesAmount = w.amount >= 10000 && w.amount < 50000;
+            break;
+          case "high":
+            matchesAmount = w.amount >= 50000;
+            break;
+        }
+      }
+      
+      // Custom amount range
+      if (minAmount && w.amount < parseFloat(minAmount)) matchesAmount = false;
+      if (maxAmount && w.amount > parseFloat(maxAmount)) matchesAmount = false;
+      
+      // Payment method filter (provider in ODHex)
+      const matchesPaymentMethod = !paymentMethodFilter || paymentMethodFilter === "all" || 
+        w.provider.toLowerCase().includes(paymentMethodFilter.toLowerCase());
+      
+      // Date range filter
+      let matchesDate = true;
+      if (dateFromFilter) {
+        const withdrawalDate = new Date(w.requestedAt);
+        const fromDate = new Date(dateFromFilter);
+        matchesDate = withdrawalDate >= fromDate;
+      }
+      if (dateToFilter && matchesDate) {
+        const withdrawalDate = new Date(w.requestedAt);
+        const toDate = new Date(dateToFilter + "T23:59:59");
+        matchesDate = withdrawalDate <= toDate;
+      }
+      
+      return matchesSearch && matchesAmount && matchesPaymentMethod && matchesDate;
+    });
+    
+    return filtered;
+  }, [odhexWithdrawals, searchTerm, amountFilter, paymentMethodFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
+
+  const pendingODHexWithdrawals = filteredODHexWithdrawals.filter(w => w.status === "pending");
+  const completedODHexWithdrawals = filteredODHexWithdrawals.filter(w => w.status === "completed");
+  const rejectedODHexWithdrawals = filteredODHexWithdrawals.filter(w => w.status === "rejected");
+
   const totalPages = Math.ceil(groupedWithdrawals.length / itemsPerPage);
   const historyTotalPages = Math.ceil(groupedHistory.length / itemsPerPage);
   const returnsTotalPages = Math.ceil(groupedReturns.length / itemsPerPage);
+  const odhexTotalPages = Math.ceil(pendingODHexWithdrawals.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const historyStartIndex = (historyPage - 1) * itemsPerPage;
   const returnsStartIndex = (returnsPage - 1) * itemsPerPage;
+  const odhexStartIndex = (odhexPage - 1) * itemsPerPage;
   const paginatedGroups = groupedWithdrawals.slice(
     startIndex,
     startIndex + itemsPerPage
@@ -365,6 +446,10 @@ const Withdrawals = () => {
   const paginatedReturns = groupedReturns.slice(
     returnsStartIndex,
     returnsStartIndex + itemsPerPage
+  );
+  const paginatedODHex = pendingODHexWithdrawals.slice(
+    odhexStartIndex,
+    odhexStartIndex + itemsPerPage
   );
 
   const handleSelectAll = () => {
@@ -568,6 +653,40 @@ const Withdrawals = () => {
     });
   };
   
+  // ODHex Withdrawal Handlers
+  const handleApproveODHex = async (withdrawal: ODHexWithdrawal) => {
+    try {
+      await updateODHexWithdrawalStatus(withdrawal.id, "completed", adminType || "");
+      toast({
+        title: "Withdrawal Approved",
+        description: `₱${withdrawal.amount.toLocaleString()} withdrawal to ${withdrawal.provider} has been marked as completed.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to approve withdrawal. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRejectODHex = async (withdrawal: ODHexWithdrawal, reason: string) => {
+    try {
+      await updateODHexWithdrawalStatus(withdrawal.id, "rejected", adminType || "", reason);
+      toast({
+        title: "Withdrawal Rejected",
+        description: `Withdrawal has been rejected.`,
+        variant: "destructive",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to reject withdrawal. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+  
   const clearFilters = () => {
     setSearchTerm("");
     setStatusFilter("all");
@@ -581,6 +700,7 @@ const Withdrawals = () => {
     setCurrentPage(1);
     setHistoryPage(1);
     setReturnsPage(1);
+    setOdhexPage(1);
   };
   
   const hasActiveFilters = searchTerm || (statusFilter !== "all") || (amountFilter !== "all") || (paymentMethodFilter !== "all") || (withdrawalTypeFilter !== "all") || dateFromFilter || dateToFilter || minAmount || maxAmount;
@@ -599,6 +719,25 @@ const Withdrawals = () => {
 
   return (
     <div>
+      {connectionError && (
+        <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+          <div className="flex items-start gap-3">
+            <IconX className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-red-800 dark:text-red-300 mb-1">Connection Issue</h3>
+              <p className="text-sm text-red-700 dark:text-red-400 mb-2">
+                Unable to establish real-time connection to the database. Data may not be up to date.
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                className="text-sm font-medium text-red-600 dark:text-red-400 hover:underline"
+              >
+                Reload Page
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 md:mb-6">
         <div>
           <h1 className="text-xl md:text-2xl font-bold">Withdrawals</h1>
@@ -796,6 +935,16 @@ const Withdrawals = () => {
             Returns ({groupedReturns.length})
           </button>
         )}
+        <button
+          onClick={() => setActiveTab("odhex")}
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            activeTab === "odhex"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          ODHex ({pendingODHexWithdrawals.length})
+        </button>
       </div>
 
       {activeTab === "pending" && (
@@ -1246,6 +1395,167 @@ const Withdrawals = () => {
         {groupedReturns.length === 0 && (
           <div className="p-8 text-center text-muted-foreground">
             No returned withdrawals
+          </div>
+        )}
+      </div>
+      )}
+
+      {/* ODHex Withdrawals Tab */}
+      {activeTab === "odhex" && (
+      <div className="bg-card border border-border rounded-lg">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1000px]">
+            <thead>
+              <tr className="border-b border-border bg-muted/50">
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  User
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Amount
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Method
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Provider
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Account
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Requested
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Status
+                </th>
+                <th className="text-center px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedODHex.map((withdrawal) => (
+                <tr key={withdrawal.id} className="border-b border-border hover:bg-muted/30 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="text-sm font-medium">{withdrawal.userEmail}</div>
+                    <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                      ID: {withdrawal.userId}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-sm font-semibold text-foreground">
+                      ₱{withdrawal.amount.toLocaleString()}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {withdrawal.amount.toLocaleString()} KOLI
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-sm capitalize">{withdrawal.method}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-sm font-medium">{withdrawal.provider}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-sm font-mono">{withdrawal.accountDetails}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(withdrawal.requestedAt).toLocaleDateString()}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(withdrawal.requestedAt).toLocaleTimeString()}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      withdrawal.status === "pending" 
+                        ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                        : withdrawal.status === "completed"
+                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                        : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                    }`}>
+                      {withdrawal.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-center gap-2">
+                      {withdrawal.status === "pending" && (
+                        <>
+                          <button
+                            onClick={() => handleApproveODHex(withdrawal)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-md text-xs font-medium hover:bg-green-700 transition-colors"
+                            title="Complete withdrawal"
+                          >
+                            <IconCheck className="h-3 w-3" />
+                            Complete
+                          </button>
+                          <button
+                            onClick={() => {
+                              const reason = prompt("Enter rejection reason:");
+                              if (reason) handleRejectODHex(withdrawal, reason);
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-md text-xs font-medium hover:bg-red-700 transition-colors"
+                            title="Reject withdrawal"
+                          >
+                            <IconX className="h-3 w-3" />
+                            Reject
+                          </button>
+                        </>
+                      )}
+                      {withdrawal.status === "rejected" && withdrawal.rejectionReason && (
+                        <div className="text-xs text-red-600 max-w-[200px] truncate" title={withdrawal.rejectionReason}>
+                          {withdrawal.rejectionReason}
+                        </div>
+                      )}
+                      {withdrawal.status === "completed" && withdrawal.processedAt && (
+                        <div className="text-xs text-muted-foreground">
+                          {new Date(withdrawal.processedAt).toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {odhexTotalPages > 1 && (
+          <div className="p-4 border-t border-border">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setOdhexPage(Math.max(1, odhexPage - 1))}
+                    className={odhexPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                {Array.from({ length: odhexTotalPages }, (_, i) => i + 1).map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setOdhexPage(page)}
+                      isActive={page === odhexPage}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => setOdhexPage(Math.min(odhexTotalPages, odhexPage + 1))}
+                    className={odhexPage === odhexTotalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
+
+        {pendingODHexWithdrawals.length === 0 && (
+          <div className="p-8 text-center text-muted-foreground">
+            No ODHex withdrawals pending
           </div>
         )}
       </div>
