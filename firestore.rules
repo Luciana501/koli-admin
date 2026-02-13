@@ -12,11 +12,23 @@ service cloud.firestore {
       return request.auth != null &&
              exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
+
+    function validPlatformCodeData(data) {
+      return data.code is string && data.code.size() > 0 &&
+             data.description is string &&
+             data.leaderId is string && data.leaderId.size() > 0 &&
+             data.leaderName is string && data.leaderName.size() > 0 &&
+             data.isActive is bool &&
+             data.usageCount is int && data.usageCount >= 0 &&
+             (!('maxUses' in data) || data.maxUses == null || (data.maxUses is int && data.maxUses > 0));
+    }
     
     // Platform Codes - Allow unauthenticated read for signup gate verification
     match /platformCodes/{codeId} {
       allow read: if true;  // Anyone can check if a code is valid
-      allow write: if false;  // Only admins can manage codes
+      allow create: if isAdmin() && validPlatformCodeData(request.resource.data);
+      allow update: if isAdmin() && validPlatformCodeData(request.resource.data);
+      allow delete: if isAdmin();
     }
     
     // Email OTP Verifications - Allow unauthenticated access for signup flow

@@ -72,6 +72,7 @@ const Users = () => {
   const [assetFilter, setAssetFilter] = useState("all");
   const [donationFilter, setDonationFilter] = useState("all");
   const [kycStatusFilter, setKycStatusFilter] = useState("all");
+  const [leaderFilter, setLeaderFilter] = useState("all");
   const [minAsset, setMinAsset] = useState("");
   const [maxAsset, setMaxAsset] = useState("");
   const [minDonation, setMinDonation] = useState("");
@@ -106,6 +107,14 @@ const Users = () => {
     setSearchParams(params, { replace: true });
   }, [users, searchParams, setSearchParams]);
 
+  const leaderOptions = Array.from(
+    new Set(
+      users
+        .map((user) => user.leaderName || user.leaderId)
+        .filter((value): value is string => Boolean(value?.trim()))
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
   const filteredUsers = users.filter((user) => {
     // Text search filter
     const matchesSearch = 
@@ -113,7 +122,10 @@ const Users = () => {
       user.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.phoneNumber.includes(searchTerm) ||
-      user.address.toLowerCase().includes(searchTerm.toLowerCase());
+      user.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (user.leaderName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (user.leaderId || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (user.platformCode || "").toLowerCase().includes(searchTerm.toLowerCase());
 
     // Asset filter
     let matchesAsset = true;
@@ -165,15 +177,39 @@ const Users = () => {
       }
     }
 
-    return matchesSearch && matchesAsset && matchesDonation && matchesKyc;
+    const leaderValue = user.leaderName || user.leaderId || "Unassigned";
+    const matchesLeader = leaderFilter === "all" || leaderValue === leaderFilter;
+
+    return matchesSearch && matchesAsset && matchesDonation && matchesKyc && matchesLeader;
   });
 
-  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    const leaderA = (a.leaderName || a.leaderId || "Unassigned").toLowerCase();
+    const leaderB = (b.leaderName || b.leaderId || "Unassigned").toLowerCase();
+    if (leaderA !== leaderB) return leaderA.localeCompare(leaderB);
+
+    const nameA = `${a.firstName} ${a.lastName}`.trim().toLowerCase();
+    const nameB = `${b.firstName} ${b.lastName}`.trim().toLowerCase();
+    return nameA.localeCompare(nameB);
+  });
+
+  const totalPages = Math.ceil(sortedUsers.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedUsers = filteredUsers.slice(
+  const paginatedUsers = sortedUsers.slice(
     startIndex,
     startIndex + itemsPerPage
   );
+
+  const groupedPaginatedUsers = paginatedUsers.reduce<Record<string, User[]>>((acc, user) => {
+    const key = user.leaderName || user.leaderId || "Unassigned";
+    if (!acc[key]) {
+      acc[key] = [];
+    }
+    acc[key].push(user);
+    return acc;
+  }, {});
+
+  const groupedEntries = Object.entries(groupedPaginatedUsers);
 
   const handleViewUser = (user: User) => {
     setViewingUser(user);
@@ -184,6 +220,7 @@ const Users = () => {
     setAssetFilter("all");
     setDonationFilter("all");
     setKycStatusFilter("all");
+    setLeaderFilter("all");
     setMinAsset("");
     setMaxAsset("");
     setMinDonation("");
@@ -340,11 +377,11 @@ const Users = () => {
               >
                 <IconFilter className="h-4 w-4" />
                 Filters
-                {(assetFilter !== "all" || donationFilter !== "all" || kycStatusFilter !== "all" || minAsset || maxAsset || minDonation || maxDonation) && (
+                {(assetFilter !== "all" || donationFilter !== "all" || kycStatusFilter !== "all" || leaderFilter !== "all" || minAsset || maxAsset || minDonation || maxDonation) && (
                   <div className="w-2 h-2 bg-primary rounded-full" />
                 )}
               </Button>
-              {(assetFilter !== "all" || donationFilter !== "all" || kycStatusFilter !== "all" || minAsset || maxAsset || minDonation || maxDonation || searchTerm) && (
+              {(assetFilter !== "all" || donationFilter !== "all" || kycStatusFilter !== "all" || leaderFilter !== "all" || minAsset || maxAsset || minDonation || maxDonation || searchTerm) && (
                 <Button variant="ghost" size="sm" onClick={clearFilters}>
                   <IconX className="h-4 w-4" />
                 </Button>
@@ -358,7 +395,7 @@ const Users = () => {
           {/* Advanced Filters */}
           {showFilters && (
             <div className="bg-muted/50 p-4 rounded-lg space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
                 {/* Asset Filters */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Total Asset</label>
@@ -429,6 +466,22 @@ const Users = () => {
                   </Select>
                 </div>
 
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Leader Group</label>
+                  <Select value={leaderFilter} onValueChange={setLeaderFilter}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="All Leaders" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Leaders</SelectItem>
+                      {leaderOptions.map((leader) => (
+                        <SelectItem key={leader} value={leader}>{leader}</SelectItem>
+                      ))}
+                      <SelectItem value="Unassigned">Unassigned</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 {/* Custom Donation Range */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Custom Donation Range</label>
@@ -471,12 +524,17 @@ const Users = () => {
           <>
             {/* Mobile card view */}
             <div className="md:hidden divide-y divide-border">
-              {paginatedUsers.map((user, index) => (
+              {groupedEntries.map(([leader, leaderUsers], groupIndex) => (
+                <div key={leader + groupIndex}>
+                  <div className="px-3 py-2 text-xs font-semibold bg-muted/50 border-b border-border">
+                    Leader: {leader} • {leaderUsers.length} user{leaderUsers.length > 1 ? "s" : ""}
+                  </div>
+                  {leaderUsers.map((user, index) => (
                 <div key={user.id} className="p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-sm truncate">
-                        {startIndex + index + 1}. {user.firstName} {user.lastName}
+                        {startIndex + paginatedUsers.findIndex((current) => current.id === user.id) + 1}. {user.firstName} {user.lastName}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                     </div>
@@ -512,6 +570,10 @@ const Users = () => {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div className="col-span-2 truncate">
+                      <span className="text-muted-foreground">Leader: </span>
+                      <span>{user.leaderName || user.leaderId || "Unassigned"}</span>
+                    </div>
                     <div>
                       <span className="text-muted-foreground">Phone: </span>
                       <span>{user.phoneNumber || "—"}</span>
@@ -530,6 +592,8 @@ const Users = () => {
                     </div>
                   </div>
                 </div>
+                  ))}
+                </div>
               ))}
             </div>
 
@@ -545,6 +609,9 @@ const Users = () => {
                 </th>
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
                   Last Name
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
+                  Leader
                 </th>
                 <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
                   Phone Number
@@ -567,16 +634,26 @@ const Users = () => {
               </tr>
             </thead>
             <tbody>
-              {paginatedUsers.map((user, index) => (
+              {groupedEntries.map(([leader, leaderUsers], groupIndex) => (
+                <React.Fragment key={leader + groupIndex}>
+                <tr className="border-b border-border bg-muted/40">
+                  <td colSpan={10} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {leader} ({leaderUsers.length})
+                  </td>
+                </tr>
+              {leaderUsers.map((user, index) => (
                 <tr
                   key={user.id}
                   className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
                 >
-                  <td className="px-4 py-3 text-sm">{startIndex + index + 1}</td>
+                  <td className="px-4 py-3 text-sm">{startIndex + paginatedUsers.findIndex((current) => current.id === user.id) + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium">
                     {user.firstName}
                   </td>
                   <td className="px-4 py-3 text-sm">{user.lastName}</td>
+                  <td className="px-4 py-3 text-sm max-w-[180px] truncate">
+                    {user.leaderName || user.leaderId || "Unassigned"}
+                  </td>
                   <td className="px-4 py-3 text-sm">{user.phoneNumber}</td>
                   <td className="px-4 py-3 text-sm">{user.email}</td>
                   <td className="px-4 py-3 text-sm max-w-[200px] truncate">
@@ -622,6 +699,8 @@ const Users = () => {
                     </div>
                   </td>
                 </tr>
+              ))}
+                </React.Fragment>
               ))}
             </tbody>
           </table>

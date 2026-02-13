@@ -26,6 +26,7 @@ import {
   IconShieldCheck,
   IconStar,
   IconTrophy,
+  IconKey,
 } from "@tabler/icons-react";
 import { subscribeToChatMessages } from "@/services/chat";
 import { auth } from "@/lib/firebase";
@@ -154,6 +155,7 @@ export function AppSidebar() {
       ? [
           { label: "KYC", href: "/kyc", icon: IconShieldCheck, badge: formatBadge(pendingKycCount) },
           { label: "MANA Reward", href: "/mana-reward", icon: IconStar },
+          { label: "Platform Codes", href: "/platform-codes", icon: IconKey },
           { label: "Donations", href: "/donations", icon: IconHeart, badge: formatBadge(pendingDonationCount) },
           { label: "Reward History", href: "/reward-history", icon: IconTrophy },
         ]

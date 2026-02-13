@@ -1,4 +1,4 @@
-import { collection, getDocs, doc, getDoc, updateDoc, addDoc, deleteDoc, query, where, orderBy, Timestamp, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, updateDoc, addDoc, deleteDoc, query, where, orderBy, Timestamp, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { db, storage, functions, auth } from "@/lib/firebase";
@@ -41,6 +41,28 @@ export interface AdminUserShare {
   createdAt: string;
   userSnapshot: User;
 }
+
+export interface PlatformCode {
+  id: string;
+  code: string;
+  description: string;
+  leaderId: string;
+  leaderName: string;
+  isActive: boolean;
+  usageCount: number;
+  maxUses: number | null;
+  createdAt: string;
+}
+
+const toIsoString = (value: unknown): string => {
+  if (!value) return new Date().toISOString();
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof (value as Timestamp)?.toDate === "function") {
+    return (value as Timestamp).toDate().toISOString();
+  }
+  return new Date().toISOString();
+};
 
 const getLatestUserSnapshotForShare = async (user: User): Promise<User> => {
   try {
@@ -400,12 +422,19 @@ export const subscribeToUsers = (callback: (users: User[]) => void) => {
         address: data.address || "",
         donationAmount: data.donationAmount || 0,
         totalAsset: data.totalAsset || 0,
-        createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        createdAt: toIsoString(data.createdAt),
         kycStatus: data.kycStatus || "NOT_SUBMITTED",
         kycSubmittedAt: data.kycSubmittedAt || undefined,
         kycManualData: data.kycManualData || undefined,
         kycImageUrl: data.kycImageUrl || undefined,
         name: data.name || undefined,
+        role: data.role || undefined,
+        status: data.status || undefined,
+        uid: data.uid || undefined,
+        leaderId: data.leaderId || undefined,
+        leaderName: data.leaderName || undefined,
+        platformCode: data.platformCode || undefined,
+        platformCodeId: data.platformCodeId || undefined,
       };
     });
     callback(users);
@@ -643,7 +672,15 @@ export const fetchUsers = async (): Promise<User[]> => {
         address: data.address || "",
       donationAmount: data.donationAmount || 0,
         totalAsset: data.totalAsset || 0,
-        createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        createdAt: toIsoString(data.createdAt),
+        kycStatus: data.kycStatus || "NOT_SUBMITTED",
+        role: data.role || undefined,
+        status: data.status || undefined,
+        uid: data.uid || undefined,
+        leaderId: data.leaderId || undefined,
+        leaderName: data.leaderName || undefined,
+        platformCode: data.platformCode || undefined,
+        platformCodeId: data.platformCodeId || undefined,
       };
     });
     
@@ -669,7 +706,15 @@ export const fetchUserById = async (userId: string): Promise<User | null> => {
         address: data.address || "",
         donationAmount: data.donationAmount || 0,
         totalAsset: data.totalAsset || 0,
-        createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        createdAt: toIsoString(data.createdAt),
+        kycStatus: data.kycStatus || "NOT_SUBMITTED",
+        role: data.role || undefined,
+        status: data.status || undefined,
+        uid: data.uid || undefined,
+        leaderId: data.leaderId || undefined,
+        leaderName: data.leaderName || undefined,
+        platformCode: data.platformCode || undefined,
+        platformCodeId: data.platformCodeId || undefined,
       };
     }
     return null;
@@ -1070,6 +1115,79 @@ export const updateKYCStatus = async (
     console.error("Error updating KYC status:", error);
     throw error;
   }
+};
+
+export const subscribeToPlatformCodes = (callback: (codes: PlatformCode[]) => void) => {
+  const codesRef = collection(db, "platformCodes");
+  const q = query(codesRef);
+
+  const unsubscribe = onSnapshot(
+    q,
+    (snapshot) => {
+      const codes = snapshot.docs
+        .map((docSnapshot) => {
+          const data = docSnapshot.data();
+          return {
+            id: docSnapshot.id,
+            code: data.code || docSnapshot.id,
+            description: data.description || "",
+            leaderId: data.leaderId || "",
+            leaderName: data.leaderName || "",
+            isActive: typeof data.isActive === "boolean" ? data.isActive : true,
+            usageCount: data.usageCount || 0,
+            maxUses: typeof data.maxUses === "number" ? data.maxUses : null,
+            createdAt: toIsoString(data.createdAt),
+          } satisfies PlatformCode;
+        })
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      callback(codes);
+    },
+    (error) => {
+      console.error("Error listening to platform codes:", error);
+      callback([]);
+    }
+  );
+
+  return unsubscribe;
+};
+
+export const createPlatformCode = async (payload: {
+  code: string;
+  description: string;
+  leaderId: string;
+  leaderName: string;
+  maxUses?: number | null;
+}): Promise<void> => {
+  const normalizedCode = payload.code.trim().toUpperCase();
+  if (!normalizedCode) {
+    throw new Error("Code is required");
+  }
+
+  const docRef = doc(db, "platformCodes", normalizedCode);
+  const existing = await getDoc(docRef);
+  if (existing.exists()) {
+    throw new Error("Platform code already exists");
+  }
+
+  await setDoc(docRef, {
+    code: normalizedCode,
+    description: payload.description.trim(),
+    leaderId: payload.leaderId.trim(),
+    leaderName: payload.leaderName.trim(),
+    usageCount: 0,
+    maxUses: typeof payload.maxUses === "number" ? payload.maxUses : null,
+    isActive: true,
+    createdAt: serverTimestamp(),
+  });
+};
+
+export const updatePlatformCodeStatus = async (codeId: string, isActive: boolean): Promise<void> => {
+  const codeRef = doc(db, "platformCodes", codeId);
+  await updateDoc(codeRef, {
+    isActive,
+    updatedAt: serverTimestamp(),
+  });
 };
 
 // Create new user

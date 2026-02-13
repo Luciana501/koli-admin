@@ -18,6 +18,13 @@ export interface User {
   };
   kycImageUrl?: string;
   name?: string;
+  role?: string;
+  status?: string;
+  uid?: string;
+  leaderId?: string;
+  leaderName?: string;
+  platformCode?: string;
+  platformCodeId?: string;
 }
 
 export interface Withdrawal {
