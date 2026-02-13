@@ -10,6 +10,7 @@ const { expireRewardCodes, expireRewardCodesHttp } = require('./expireRewards');
 const { deleteUserAccount } = require('./deleteUser');
 const { handleODHexWithdrawalRejectionRefund } = require('./odhexRefunds');
 const { createMemberAccount } = require('./createMemberAccount');
+const { syncPlatformCodeUsage } = require('./platformCodeUsageSync');
 
 // Export the functions
 exports.expireRewardCodes = expireRewardCodes;
@@ -17,3 +18,4 @@ exports.expireRewardCodesHttp = expireRewardCodesHttp;
 exports.deleteUserAccount = deleteUserAccount;
 exports.handleODHexWithdrawalRejectionRefund = handleODHexWithdrawalRejectionRefund;
 exports.createMemberAccount = createMemberAccount;
+exports.syncPlatformCodeUsage = syncPlatformCodeUsage;

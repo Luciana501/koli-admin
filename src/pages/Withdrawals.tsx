@@ -64,7 +64,6 @@ const Withdrawals = () => {
   const [returnNote, setReturnNote] = useState("");
   const [returnGroup, setReturnGroup] = useState<GroupedWithdrawal | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [connectionError, setConnectionError] = useState(false);
   const [odhexViewModalOpen, setOdhexViewModalOpen] = useState(false);
   const [selectedOdhexWithdrawal, setSelectedOdhexWithdrawal] = useState<ODHexWithdrawal | null>(null);
   const [odhexRejectReason, setOdhexRejectReason] = useState("");
@@ -88,27 +87,15 @@ const Withdrawals = () => {
   const itemsPerPage = 50;
 
   useEffect(() => {
-    let errorTimeout: NodeJS.Timeout;
-
     // Subscribe to ODHex withdrawals
     const unsubscribeODHex = subscribeToODHexWithdrawals((data) => {
       setODHexWithdrawals(data);
       setLoading(false);
-      setConnectionError(false);
     });
-
-    // Set a timeout to show connection error if data doesn't load
-    errorTimeout = setTimeout(() => {
-      if (loading) {
-        setConnectionError(true);
-        setLoading(false);
-      }
-    }, 10000); // 10 seconds
 
     // Cleanup subscriptions on unmount
     return () => {
       unsubscribeODHex();
-      clearTimeout(errorTimeout);
     };
   }, []);
 
@@ -796,25 +783,6 @@ const Withdrawals = () => {
 
   return (
     <div className="p-0">
-      {connectionError && (
-        <div className="mb-4 p-2 sm:p-3 md:p-4 mx-2 sm:mx-4 md:mx-6 lg:mx-8 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-          <div className="flex items-start gap-3">
-            <IconX className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-sm md:text-base text-red-800 dark:text-red-300 mb-1">Connection Issue</h3>
-              <p className="text-xs md:text-sm text-red-700 dark:text-red-400 mb-2">
-                Unable to establish real-time connection to the database. Data may not be up to date.
-              </p>
-              <button
-                onClick={() => window.location.reload()}
-                className="text-xs md:text-sm font-medium text-red-600 dark:text-red-400 hover:underline"
-              >
-                Reload Page
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 md:mb-6 px-2 sm:px-4 md:px-6 lg:px-8">
         <div>
           <h1 className="text-lg sm:text-xl md:text-2xl font-bold">ODHex Withdrawals</h1>

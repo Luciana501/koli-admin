@@ -68,6 +68,22 @@ See [README-EXPIRATION.md](./README-EXPIRATION.md) for detailed documentation.
 3. Writes a ledger entry in `ODHexMembers/{memberId}/odhexLedger`
 4. Marks withdrawal with `refundApplied: true` to prevent duplicate refunds
 
+---
+
+### 4. syncPlatformCodeUsage
+
+**Purpose:** Keeps `platformCodes/{codeId}.usageCount` in sync with member code usage.
+
+**Type:** Firestore trigger (`onDocumentWritten`)
+
+**Trigger Path:** `members/{memberId}`
+
+**What it does:**
+1. Reads member code before/after changes from `platformCodeId` or `platformCode`
+2. Decrements previous code usage when code is changed/removed
+3. Increments new code usage when code is added/changed
+4. Ignores unrelated member updates where code did not change
+
 **Ledger fields written:**
 - `type: withdrawal_rejected_refund`
 - `direction: credit`
@@ -99,6 +115,7 @@ firebase deploy --only functions
 firebase deploy --only functions:deleteUserAccount
 firebase deploy --only functions:expireRewardCodes
 firebase deploy --only functions:handleODHexWithdrawalRejectionRefund
+firebase deploy --only functions:syncPlatformCodeUsage
 ```
 
 ### Test Locally
