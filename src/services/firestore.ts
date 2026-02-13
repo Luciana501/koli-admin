@@ -804,25 +804,71 @@ export const subscribeToODHexWithdrawals = (callback: (withdrawals: import("@/ty
       // Add includeMetadataChanges to handle connection state better
       includeMetadataChanges: false
     },
-    (snapshot) => {
+    async (snapshot) => {
       retryCount = 0; // Reset retry count on successful connection
-      const withdrawals: import("@/types/admin").ODHexWithdrawal[] = snapshot.docs.map((doc) => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          userId: data.userId || "",
-          userEmail: data.userEmail || "",
-          amount: data.amount || 0,
-          method: data.method || "ewallet",
-          provider: data.provider || "",
-          accountDetails: data.accountDetails || "",
-          status: data.status || "pending",
-          requestedAt: data.requestedAt || new Date().toISOString(),
-          processedAt: data.processedAt || null,
-          processedBy: data.processedBy || null,
-          rejectionReason: data.rejectionReason || "",
-        };
-      });
+      const withdrawals = await Promise.all(
+        snapshot.docs.map(async (docSnapshot) => {
+          const data = docSnapshot.data();
+
+          let leaderId = data.leaderId || "";
+          let leaderName = data.leaderName || "";
+
+          if (data.userId || data.userEmail) {
+            try {
+              let userData: Record<string, any> | null = null;
+
+              if (data.userId) {
+                const userDoc = await getDoc(doc(db, "members", data.userId));
+                if (userDoc.exists()) {
+                  userData = userDoc.data();
+                }
+              }
+
+              if (!userData && data.userId) {
+                const byUidSnapshot = await getDocs(
+                  query(collection(db, "members"), where("uid", "==", data.userId))
+                );
+                if (!byUidSnapshot.empty) {
+                  userData = byUidSnapshot.docs[0].data() as Record<string, any>;
+                }
+              }
+
+              if (!userData && data.userEmail) {
+                const byEmailSnapshot = await getDocs(
+                  query(collection(db, "members"), where("email", "==", data.userEmail))
+                );
+                if (!byEmailSnapshot.empty) {
+                  userData = byEmailSnapshot.docs[0].data() as Record<string, any>;
+                }
+              }
+
+              if (userData) {
+                leaderId = userData.leaderId || leaderId;
+                leaderName = userData.leaderName || leaderName;
+              }
+            } catch (memberError) {
+              console.error("Error fetching member leader info for ODHex withdrawal:", memberError);
+            }
+          }
+
+          return {
+            id: docSnapshot.id,
+            userId: data.userId || "",
+            userEmail: data.userEmail || "",
+            leaderId: leaderId || undefined,
+            leaderName: leaderName || undefined,
+            amount: data.amount || 0,
+            method: data.method || "ewallet",
+            provider: data.provider || "",
+            accountDetails: data.accountDetails || "",
+            status: data.status || "pending",
+            requestedAt: data.requestedAt || new Date().toISOString(),
+            processedAt: data.processedAt || null,
+            processedBy: data.processedBy || null,
+            rejectionReason: data.rejectionReason || "",
+          } as import("@/types/admin").ODHexWithdrawal;
+        })
+      );
       callback(withdrawals);
     }, 
     (error) => {
@@ -1195,12 +1241,47 @@ export const createUser = async (
   userData: Omit<User, "id" | "createdAt">
 ): Promise<string> => {
   try {
+    const password = (userData as any).password;
+    if (password) {
+      const createMemberAccount = httpsCallable(functions, "createMemberAccount");
+      const result = await createMemberAccount({
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        email: userData.email,
+        phoneNumber: userData.phoneNumber,
+        address: userData.address,
+        password,
+        donationAmount: userData.donationAmount || 0,
+        totalAsset: userData.totalAsset || 0,
+        kycStatus: userData.kycStatus || "NOT_SUBMITTED",
+      });
+
+      const createdUid = (result.data as any)?.uid;
+      if (createdUid) {
+        return createdUid;
+      }
+    }
+
     const membersRef = collection(db, "members");
+    const nowIso = new Date().toISOString();
+    const initialKycStatus = userData.kycStatus || "NOT_SUBMITTED";
+
     const docRef = await addDoc(membersRef, {
       ...userData,
-      createdAt: new Date().toISOString(),
-      kycStatus: userData.kycStatus || "NOT_SUBMITTED",
+      uid: (userData as any).uid || "",
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      kycStatus: initialKycStatus,
+      ...(initialKycStatus === "APPROVED" || initialKycStatus === "REJECTED"
+        ? { kycProcessedAt: nowIso }
+        : {}),
     });
+
+    // Ensure uid exists for downstream mobile lookups when admin creates records
+    await updateDoc(docRef, {
+      uid: (userData as any).uid || docRef.id,
+    });
+
     return docRef.id;
   } catch (error) {
     console.error("Error creating user:", error);
@@ -1215,10 +1296,17 @@ export const updateUser = async (
 ): Promise<void> => {
   try {
     const userRef = doc(db, "members", userId);
-    await updateDoc(userRef, {
+    const nowIso = new Date().toISOString();
+    const updatePayload: any = {
       ...userData,
-      updatedAt: new Date().toISOString(),
-    });
+      updatedAt: nowIso,
+    };
+
+    if (userData.kycStatus === "APPROVED" || userData.kycStatus === "REJECTED") {
+      updatePayload.kycProcessedAt = nowIso;
+    }
+
+    await updateDoc(userRef, updatePayload);
   } catch (error) {
     console.error("Error updating user:", error);
     throw error;
@@ -1227,6 +1315,27 @@ export const updateUser = async (
 
 // Delete user
 export const deleteUser = async (userId: string): Promise<void> => {
+  const fallbackDeleteFromFirestore = async () => {
+    // 1) Try direct members/{userId}
+    const directRef = doc(db, "members", userId);
+    const directSnap = await getDoc(directRef);
+    if (directSnap.exists()) {
+      await deleteDoc(directRef);
+      console.log('User deleted from Firestore by document ID');
+      return;
+    }
+
+    // 2) Try members where uid == userId
+    const byUid = await getDocs(query(collection(db, "members"), where("uid", "==", userId)));
+    if (!byUid.empty) {
+      await Promise.all(byUid.docs.map((d) => deleteDoc(doc(db, "members", d.id))));
+      console.log(`User deleted from Firestore by uid match (${byUid.size} document(s))`);
+      return;
+    }
+
+    throw new Error('User record not found in Firestore for deletion');
+  };
+
   try {
     // Ensure user is authenticated before calling the function
     const currentUser = auth.currentUser;
@@ -1250,14 +1359,26 @@ export const deleteUser = async (userId: string): Promise<void> => {
     console.error("Error deleting user:", error);
     console.error("Error code:", error.code);
     console.error("Error details:", error.details);
-    
-    // If Cloud Function is not deployed, fall back to Firestore-only deletion
-    if (error.code === 'functions/not-found') {
-      console.warn('Cloud function not found, deleting from Firestore only');
+
+    const code = String(error?.code || '');
+    const message = String(error?.message || '').toLowerCase();
+    const shouldFallbackToFirestore =
+      code === 'functions/not-found' ||
+      code === 'functions/internal' ||
+      code === 'functions/unavailable' ||
+      code === 'functions/unknown' ||
+      message.includes('cors') ||
+      message.includes('access-control-allow-origin') ||
+      message.includes('404') ||
+      message.includes('failed to fetch') ||
+      message.includes('network');
+
+    // If callable endpoint is unavailable, do Firestore-only deletion
+    if (shouldFallbackToFirestore) {
+      console.warn('Callable deleteUserAccount unavailable, deleting from Firestore only');
       try {
-        const userRef = doc(db, "members", userId);
-        await deleteDoc(userRef);
-        console.log('User deleted from Firestore (Authentication account still exists)');
+        await fallbackDeleteFromFirestore();
+        console.log('User deleted from Firestore (Authentication account may still exist)');
         return;
       } catch (firestoreError) {
         console.error("Error deleting from Firestore:", firestoreError);

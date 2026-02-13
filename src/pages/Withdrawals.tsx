@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Withdrawal, ODHexWithdrawal } from "@/types/admin";
 import { updateWithdrawalStatus, subscribeToODHexWithdrawals, updateODHexWithdrawalStatus } from "@/services/firestore";
 import { useAuth } from "@/context/AuthContext";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { IconSend, IconCheck, IconEye, IconX, IconFilter, IconSearch } from "@tabler/icons-react";
 import {
   Pagination,
@@ -78,6 +80,8 @@ const Withdrawals = () => {
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [leaderFilter, setLeaderFilter] = useState("all");
+  const [platformCodeLeaders, setPlatformCodeLeaders] = useState<string[]>([]);
   
   const { adminType } = useAuth();
   const { toast } = useToast();
@@ -105,6 +109,42 @@ const Withdrawals = () => {
     return () => {
       unsubscribeODHex();
       clearTimeout(errorTimeout);
+    };
+  }, []);
+
+  useEffect(() => {
+    const platformCodesQuery = query(
+      collection(db, "platformCodes"),
+      where("isActive", "==", true)
+    );
+
+    const unsubscribePlatformCodes = onSnapshot(
+      platformCodesQuery,
+      (snapshot) => {
+        const leaders = Array.from(
+          new Set(
+            snapshot.docs
+              .map((docSnapshot) => {
+                const data = docSnapshot.data() as any;
+                return String(data.leaderName || data.leaderId || "").trim();
+              })
+              .filter((leader) => Boolean(leader))
+          )
+        ).sort((a, b) => a.localeCompare(b));
+
+        setPlatformCodeLeaders(leaders);
+        setLeaderFilter((previous) =>
+          previous !== "all" && !leaders.includes(previous) ? "all" : previous
+        );
+      },
+      (error) => {
+        console.error("Error fetching leaders from platformCodes:", error);
+        setPlatformCodeLeaders([]);
+      }
+    );
+
+    return () => {
+      unsubscribePlatformCodes();
     };
   }, []);
 
@@ -377,6 +417,7 @@ const Withdrawals = () => {
       const matchesSearch = !searchTerm ||
         w.userEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
         w.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (w.leaderName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
         w.accountDetails.toLowerCase().includes(searchTerm.toLowerCase()) ||
         w.provider.toLowerCase().includes(searchTerm.toLowerCase());
       
@@ -436,10 +477,36 @@ const Withdrawals = () => {
     (w) => w.status === "completed" || w.status === "rejected"
   );
 
+  const odhexLeaderOptions = useMemo(() => {
+    return platformCodeLeaders;
+  }, [platformCodeLeaders]);
+
+  const odhexLeaderFiltered = useMemo(() => {
+    if (leaderFilter === "all") return odhexActiveWithdrawals;
+    return odhexActiveWithdrawals.filter((w) => (w.leaderName || w.leaderId || "Unassigned") === leaderFilter);
+  }, [odhexActiveWithdrawals, leaderFilter]);
+
+  const odhexGroupedByLeader = useMemo(() => {
+    const groups = new Map<string, ODHexWithdrawal[]>();
+    odhexLeaderFiltered.forEach((withdrawal) => {
+      const leaderKey = (withdrawal.leaderName || withdrawal.leaderId || "Unassigned").trim() || "Unassigned";
+      const existing = groups.get(leaderKey) || [];
+      existing.push(withdrawal);
+      groups.set(leaderKey, existing);
+    });
+
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([leader, list]) => ({
+        leader,
+        withdrawals: list.sort((x, y) => new Date(y.requestedAt).getTime() - new Date(x.requestedAt).getTime()),
+      }));
+  }, [odhexLeaderFiltered]);
+
   const totalPages = Math.ceil(groupedWithdrawals.length / itemsPerPage);
   const historyTotalPages = Math.ceil(odhexHistoryWithdrawals.length / itemsPerPage);
   const returnsTotalPages = Math.ceil(groupedReturns.length / itemsPerPage);
-  const odhexTotalPages = Math.ceil(odhexActiveWithdrawals.length / itemsPerPage);
+  const odhexTotalPages = Math.ceil(odhexLeaderFiltered.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const historyStartIndex = (historyPage - 1) * itemsPerPage;
   const returnsStartIndex = (returnsPage - 1) * itemsPerPage;
@@ -456,7 +523,7 @@ const Withdrawals = () => {
     returnsStartIndex,
     returnsStartIndex + itemsPerPage
   );
-  const paginatedODHex = odhexActiveWithdrawals.slice(
+  const paginatedODHex = odhexLeaderFiltered.slice(
     odhexStartIndex,
     odhexStartIndex + itemsPerPage
   );
@@ -706,6 +773,7 @@ const Withdrawals = () => {
     setDateToFilter("");
     setMinAmount("");
     setMaxAmount("");
+    setLeaderFilter("all");
     setCurrentPage(1);
     setHistoryPage(1);
     setReturnsPage(1);
@@ -907,7 +975,7 @@ const Withdrawals = () => {
             </div>
             
             <div className="mt-4 text-sm text-muted-foreground">
-              Showing {activeTab === "odhex" ? odhexActiveWithdrawals.length : odhexHistoryWithdrawals.length} withdrawals
+              Showing {activeTab === "odhex" ? odhexLeaderFiltered.length : odhexHistoryWithdrawals.length} withdrawals
               {hasActiveFilters && " (filtered)"}
             </div>
           </div>
@@ -937,6 +1005,27 @@ const Withdrawals = () => {
           History ({odhexHistoryWithdrawals.length})
         </button>
       </div>
+
+      {activeTab === "odhex" && (
+        <div className="mb-4 px-2 sm:px-4 md:px-6 lg:px-8">
+          <div className="w-full sm:w-[320px]">
+            <label className="text-sm font-medium mb-2 block">Leader</label>
+            <Select value={leaderFilter} onValueChange={setLeaderFilter}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="All Leaders" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Leaders</SelectItem>
+                {odhexLeaderOptions.map((leader) => (
+                  <SelectItem key={leader} value={leader}>
+                    {leader}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
 
       {activeTab === "history" && (
       odhexHistoryWithdrawals.length === 0 ? (
@@ -983,6 +1072,9 @@ const Withdrawals = () => {
                     <td className="px-4 py-3">
                       <div className="text-sm font-medium">{withdrawal.userEmail}</div>
                       <div className="text-xs text-muted-foreground truncate max-w-[200px]">ID: {withdrawal.userId}</div>
+                      <div className="text-xs text-muted-foreground truncate max-w-[220px]">
+                        Leader: {withdrawal.leaderName || withdrawal.leaderId || "Unassigned"}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm font-semibold">₱{withdrawal.amount.toLocaleString()}</div>
@@ -1063,140 +1155,90 @@ const Withdrawals = () => {
 
       {/* ODHex Withdrawals Tab */}
       {activeTab === "odhex" && (
-      odhexActiveWithdrawals.length === 0 ? (
+      odhexLeaderFiltered.length === 0 ? (
       <div className="bg-card border border-border rounded-lg p-6 sm:p-8 text-center text-muted-foreground mx-2 sm:mx-4 md:mx-6 lg:mx-8">
         No active ODHex withdrawals
       </div>
       ) : (
-      <div className="bg-card border border-border rounded-lg">
-        <div className="overflow-x-auto max-h-[65vh] overflow-y-auto">
-          <table className="w-full min-w-[1000px]">
-            <thead>
-              <tr className="border-b border-border bg-muted/50">
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  User
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Amount
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Method
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Provider
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Account
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Requested
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Status
-                </th>
-                <th className="text-center px-4 py-3 text-sm font-medium text-muted-foreground">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedODHex.map((withdrawal) => (
-                <tr key={withdrawal.id} className="border-b border-border hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3">
-                    <div className="text-sm font-medium">{withdrawal.userEmail}</div>
-                    <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                      ID: {withdrawal.userId}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm font-semibold text-foreground">
-                      ₱{withdrawal.amount.toLocaleString()}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {withdrawal.amount.toLocaleString()} KOLI
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm capitalize">{withdrawal.method}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm font-medium">{withdrawal.provider}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-sm font-mono">{withdrawal.accountDetails}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(withdrawal.requestedAt).toLocaleDateString()}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(withdrawal.requestedAt).toLocaleTimeString()}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      withdrawal.status === "pending" 
-                        ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
-                        : withdrawal.status === "completed"
-                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                        : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
-                    }`}>
-                      {withdrawal.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-center gap-2">
-                      <button
-                        onClick={() => {
-                          setSelectedOdhexWithdrawal(withdrawal);
-                          setOdhexViewModalOpen(true);
-                        }}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs font-medium hover:bg-blue-700 transition-colors"
-                        title="View withdrawal details"
-                      >
-                        <IconEye className="h-3 w-3" />
-                        View
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {odhexTotalPages > 1 && (
-          <div className="p-4 border-t border-border">
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  <PaginationPrevious
-                    onClick={() => setOdhexPage(Math.max(1, odhexPage - 1))}
-                    className={odhexPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-                {Array.from({ length: odhexTotalPages }, (_, i) => i + 1).map((page) => (
-                  <PaginationItem key={page}>
-                    <PaginationLink
-                      onClick={() => setOdhexPage(page)}
-                      isActive={page === odhexPage}
-                      className="cursor-pointer"
-                    >
-                      {page}
-                    </PaginationLink>
-                  </PaginationItem>
-                ))}
-                <PaginationItem>
-                  <PaginationNext
-                    onClick={() => setOdhexPage(Math.min(odhexTotalPages, odhexPage + 1))}
-                    className={odhexPage === odhexTotalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
+      <div className="space-y-4 mx-2 sm:mx-4 md:mx-6 lg:mx-8">
+        {odhexGroupedByLeader.map((group) => (
+          <div key={group.leader} className="bg-card border border-border rounded-lg overflow-hidden">
+            <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center justify-between">
+              <h3 className="text-sm md:text-base font-semibold">Leader: {group.leader}</h3>
+              <span className="text-xs text-muted-foreground">{group.withdrawals.length} request(s)</span>
+            </div>
+            <div className="overflow-x-auto max-h-[65vh] overflow-y-auto">
+              <table className="w-full min-w-[1000px]">
+                <thead>
+                  <tr className="border-b border-border bg-muted/50">
+                    <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">User</th>
+                    <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Amount</th>
+                    <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Method</th>
+                    <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Provider</th>
+                    <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Account</th>
+                    <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Requested</th>
+                    <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Status</th>
+                    <th className="text-center px-4 py-3 text-sm font-medium text-muted-foreground">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.withdrawals.map((withdrawal) => (
+                    <tr key={withdrawal.id} className="border-b border-border hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-medium">{withdrawal.userEmail}</div>
+                        <div className="text-xs text-muted-foreground truncate max-w-[200px]">ID: {withdrawal.userId}</div>
+                        <div className="text-xs text-muted-foreground truncate max-w-[220px]">Leader: {withdrawal.leaderName || withdrawal.leaderId || "Unassigned"}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-semibold text-foreground">₱{withdrawal.amount.toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">{withdrawal.amount.toLocaleString()} KOLI</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm capitalize">{withdrawal.method}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-medium">{withdrawal.provider}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-mono">{withdrawal.accountDetails}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-xs text-muted-foreground">{new Date(withdrawal.requestedAt).toLocaleDateString()}</div>
+                        <div className="text-xs text-muted-foreground">{new Date(withdrawal.requestedAt).toLocaleTimeString()}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          withdrawal.status === "pending"
+                            ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                            : withdrawal.status === "completed"
+                            ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                            : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                        }`}>
+                          {withdrawal.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedOdhexWithdrawal(withdrawal);
+                              setOdhexViewModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs font-medium hover:bg-blue-700 transition-colors"
+                            title="View withdrawal details"
+                          >
+                            <IconEye className="h-3 w-3" />
+                            View
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        )}
-
+        ))}
       </div>
       )
       )}
@@ -1515,6 +1557,10 @@ const Withdrawals = () => {
                   <div>
                     <span className="font-medium text-muted-foreground">User ID:</span>
                     <div className="mt-1 font-mono text-xs">{selectedOdhexWithdrawal.userId}</div>
+                  </div>
+                  <div>
+                    <span className="font-medium text-muted-foreground">Leader:</span>
+                    <div className="mt-1">{selectedOdhexWithdrawal.leaderName || selectedOdhexWithdrawal.leaderId || "Unassigned"}</div>
                   </div>
                 </div>
               </div>

@@ -37,6 +37,7 @@ interface RewardHistoryItem {
 
 interface Member {
   id: string;
+  uid?: string;
   name: string;
   email: string;
   firstName: string;
@@ -188,6 +189,7 @@ const RewardHistory: React.FC = () => {
           const docData = doc.data();
           return {
             id: doc.id,
+            uid: docData.uid || "",
             name: docData.name || `${docData.firstName || ""} ${docData.lastName || ""}`.trim(),
             email: docData.email || "",
             firstName: docData.firstName || "",
@@ -237,18 +239,18 @@ const RewardHistory: React.FC = () => {
           
           return {
             id: doc.id,
-            userId: docData.userId || docData.uid || "",
+            userId: String(docData.userId || docData.uid || "").trim(),
             userName: docData.userName || docData.name || "",
             userEmail: docData.userEmail || docData.email || "",
-            claimAmount: docData.claimAmount || docData.amount || 0,
+            claimAmount: Number(docData.claimAmount ?? docData.amount ?? 0) || 0,
             claimedAt: toIso(docData.claimedAt || docData.timestamp || docData.createdAt) || new Date().toISOString(),
             claimedDate: docData.claimedDate || docData.date || "",
             poolAfter: docData.poolAfter || docData.afterPool || 0,
             poolBefore: docData.poolBefore || docData.beforePool || 0,
             rewardPoolId: docData.rewardPoolId || docData.poolId || "",
             secretCode: normalizeCode(docData.secretCode || docData.code || docData.rewardCode || ""),
-            timeToClaim: docData.timeToClaim || 0,
-            timeToClaimMinutes: docData.timeToClaimMinutes || 0,
+            timeToClaim: Number(docData.timeToClaim || 0) || 0,
+            timeToClaimMinutes: Number(docData.timeToClaimMinutes || 0) || 0,
             codeCreatedAt: toIso(docData.codeCreatedAt) || "",
           } as RewardClaim;
         });
@@ -448,16 +450,42 @@ const filteredRewards = React.useMemo(() => {
   // Leaderboards - use rewardClaims
   const userClaimStats: Record<string, { total: number; count: number; times: number[] }> = {};
   rewardClaims.forEach((claim) => {
-    if (!userClaimStats[claim.userId]) userClaimStats[claim.userId] = { total: 0, count: 0, times: [] };
-    userClaimStats[claim.userId].total += claim.claimAmount || 0;
-    userClaimStats[claim.userId].count += 1;
+    const claimWithTiming = claim as RewardClaim & {
+      codeCreatedAt?: string;
+      timeToClaim?: number;
+      timeToClaimMinutes?: number;
+      userEmail?: string;
+      userName?: string;
+    };
+
+    const claimantKey =
+      claim.userId?.trim() ||
+      claimWithTiming.userEmail?.trim().toLowerCase() ||
+      claimWithTiming.userName?.trim().toLowerCase() ||
+      claim.id;
+
+    if (!userClaimStats[claimantKey]) userClaimStats[claimantKey] = { total: 0, count: 0, times: [] };
+    userClaimStats[claimantKey].total += claim.claimAmount || 0;
+    userClaimStats[claimantKey].count += 1;
     
     // Calculate time to claim using reward creation time from rewards array
     const reward = rewards.find(r => normalizeCode(r.secretCode) === normalizeCode(claim.secretCode));
-    const claimedTime = toMillis(claim.claimedAt);
-    const createdTime = toMillis(reward?.createdAt) || toMillis((claim as RewardClaim & { codeCreatedAt?: string }).codeCreatedAt);
-    if (claimedTime && createdTime) {
-      userClaimStats[claim.userId].times.push(claimedTime - createdTime);
+    let derivedTimeMs = 0;
+
+    if (typeof claimWithTiming.timeToClaimMinutes === "number" && claimWithTiming.timeToClaimMinutes > 0) {
+      derivedTimeMs = claimWithTiming.timeToClaimMinutes * 60 * 1000;
+    } else if (typeof claimWithTiming.timeToClaim === "number" && claimWithTiming.timeToClaim > 0) {
+      derivedTimeMs = claimWithTiming.timeToClaim * 1000;
+    } else {
+      const claimedTime = toMillis(claim.claimedAt);
+      const createdTime = toMillis(reward?.createdAt) || toMillis(claimWithTiming.codeCreatedAt);
+      if (claimedTime && createdTime && claimedTime >= createdTime) {
+        derivedTimeMs = claimedTime - createdTime;
+      }
+    }
+
+    if (derivedTimeMs > 0) {
+      userClaimStats[claimantKey].times.push(derivedTimeMs);
     }
   });
   // Top claimers
@@ -465,9 +493,17 @@ const filteredRewards = React.useMemo(() => {
     .map(([userId, stat]) => ({ userId, ...stat }))
     .sort((a, b) => b.total - a.total)
     .slice(0, 5);
-  // Fastest claimers (at least 3 claims)
-  const fastestClaimers = Object.entries(userClaimStats)
-    .filter(([_, stat]) => stat.times.length >= 3)
+  const fastestEligible = Object.entries(userClaimStats)
+    .filter(([_, stat]) => stat.count >= 3 && stat.times.length > 0)
+    .map(([userId, stat]) => ({
+      userId,
+      avgTime: stat.times.reduce((a, b) => a + b, 0) / stat.times.length,
+      count: stat.count,
+    }))
+    .sort((a, b) => a.avgTime - b.avgTime);
+
+  const fastestFallback = Object.entries(userClaimStats)
+    .filter(([_, stat]) => stat.count >= 1 && stat.times.length > 0)
     .map(([userId, stat]) => ({
       userId,
       avgTime: stat.times.reduce((a, b) => a + b, 0) / stat.times.length,
@@ -475,6 +511,9 @@ const filteredRewards = React.useMemo(() => {
     }))
     .sort((a, b) => a.avgTime - b.avgTime)
     .slice(0, 5);
+
+  // Prefer >=3 claims, but show real available data if none qualify yet.
+  const fastestClaimers = (fastestEligible.length > 0 ? fastestEligible : fastestFallback).slice(0, 5);
 
   if (loading) {
     return (
@@ -776,7 +815,12 @@ const filteredRewards = React.useMemo(() => {
                 </thead>
                 <tbody>
                 {topClaimers.map((u, idx) => {
-                  const member = members.find(m => m.id === u.userId);
+                  const member = members.find(
+                    m =>
+                      m.id === u.userId ||
+                      m.uid === u.userId ||
+                      m.email.toLowerCase() === String(u.userId).toLowerCase()
+                  );
                   return (
                     <tr key={u.userId} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
                       <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm font-medium truncate max-w-[120px] md:max-w-none">{member ? member.name : u.userId}</td>
@@ -809,7 +853,12 @@ const filteredRewards = React.useMemo(() => {
                 </thead>
                 <tbody>
                 {fastestClaimers.map((u, idx) => {
-                  const member = members.find(m => m.id === u.userId);
+                  const member = members.find(
+                    m =>
+                      m.id === u.userId ||
+                      m.uid === u.userId ||
+                      m.email.toLowerCase() === String(u.userId).toLowerCase()
+                  );
                   return (
                     <tr key={u.userId} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
                       <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm font-medium truncate max-w-[120px] md:max-w-none">{member ? member.name : u.userId}</td>
@@ -823,7 +872,7 @@ const filteredRewards = React.useMemo(() => {
             </div>
             {fastestClaimers.length === 0 && (
               <div className="text-center py-6 md:py-8">
-                <p className="text-muted-foreground text-xs md:text-sm">No eligible claimers yet (minimum 3 claims required).</p>
+                <p className="text-muted-foreground text-xs md:text-sm">No claim timing data available yet.</p>
               </div>
             )}
           </div>

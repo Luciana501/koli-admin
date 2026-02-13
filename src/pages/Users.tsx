@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { User } from "@/types/admin";
-import { subscribeToUsers, createUser, updateUser, deleteUser, shareUserWithOtherAdmin, shareUserToAdminChat } from "@/services/firestore";
+import { subscribeToUsers, createUser, updateUser, deleteUser, shareUserWithOtherAdmin, shareUserToAdminChat, updateKYCStatus } from "@/services/firestore";
 import { IconSearch, IconEye, IconFilter, IconX, IconEdit, IconTrash, IconPlus, IconShare } from "@tabler/icons-react";
 import {
   Pagination,
@@ -250,7 +250,19 @@ const Users = () => {
           description: "User created successfully",
         });
       } else if (formMode === "edit" && editingUser) {
+        const nextKycStatus = userData.kycStatus;
+        const previousKycStatus = editingUser.kycStatus;
+
         await updateUser(editingUser.id, userData);
+
+        if (
+          nextKycStatus &&
+          nextKycStatus !== previousKycStatus &&
+          (nextKycStatus === "APPROVED" || nextKycStatus === "REJECTED")
+        ) {
+          await updateKYCStatus(editingUser.id, nextKycStatus);
+        }
+
         toast({
           title: "Success",
           description: "User updated successfully",

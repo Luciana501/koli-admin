@@ -101,6 +101,8 @@ export interface ODHexWithdrawal {
   id: string;
   userId: string;
   userEmail: string;
+  leaderId?: string;
+  leaderName?: string;
   amount: number;
   method: "ewallet" | "bank";
   provider: string;
