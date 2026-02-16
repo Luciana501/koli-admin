@@ -3,6 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -38,6 +46,8 @@ const PlatformCodes = () => {
   const [modalActive, setModalActive] = useState(true);
   const [modalSaving, setModalSaving] = useState(false);
   const [modalDeleting, setModalDeleting] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
   const { toast } = useToast();
 
   useEffect(() => {
@@ -77,6 +87,21 @@ const PlatformCodes = () => {
       return name.includes(searchValue);
     });
   }, [codes, leaderSearch]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCodes.length / itemsPerPage));
+
+  const paginatedCodes = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredCodes.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredCodes, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [leaderSearch]);
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => Math.min(previousPage, totalPages));
+  }, [totalPages]);
 
   const resetForm = () => {
     setCode("");
@@ -303,7 +328,7 @@ const PlatformCodes = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredCodes.map((platformCode) => (
+                {paginatedCodes.map((platformCode) => (
                   <tr key={platformCode.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3 text-sm font-semibold">{platformCode.code}</td>
                     <td className="px-4 py-3 text-sm">
@@ -329,6 +354,38 @@ const PlatformCodes = () => {
             </table>
           )}
         </div>
+
+        {!loading && filteredCodes.length > 0 && totalPages > 1 && (
+          <div className="p-4 border-t border-border">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setCurrentPage((previousPage) => Math.max(1, previousPage - 1))}
+                    className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setCurrentPage(page)}
+                      isActive={page === currentPage}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => setCurrentPage((previousPage) => Math.min(totalPages, previousPage + 1))}
+                    className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
       </div>
 
       <Dialog open={leaderModalOpen} onOpenChange={setLeaderModalOpen}>
