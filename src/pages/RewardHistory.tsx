@@ -447,8 +447,51 @@ const filteredRewards = React.useMemo(() => {
     setClaimsCurrentPage(1);
   }, [claimsSearch, claimsSort, claimsAmountFilter, claimsDateFrom, claimsDateTo]);
 
+  const memberNameByKey = React.useMemo(() => {
+    const map = new Map<string, string>();
+
+    members.forEach((member) => {
+      const resolvedName =
+        member.name?.trim() ||
+        `${member.firstName || ""} ${member.lastName || ""}`.trim() ||
+        member.email?.trim() ||
+        member.id;
+
+      if (!resolvedName) return;
+
+      map.set(member.id, resolvedName);
+
+      const uid = member.uid?.trim();
+      if (uid) {
+        map.set(uid, resolvedName);
+      }
+
+      const email = member.email?.trim().toLowerCase();
+      if (email) {
+        map.set(email, resolvedName);
+      }
+    });
+
+    return map;
+  }, [members]);
+
+  const resolveMemberName = React.useCallback(
+    (identifier: string, fallback?: string) => {
+      const normalized = String(identifier || "").trim();
+      if (!normalized) return fallback || "Unknown User";
+
+      return (
+        memberNameByKey.get(normalized) ||
+        memberNameByKey.get(normalized.toLowerCase()) ||
+        fallback ||
+        normalized
+      );
+    },
+    [memberNameByKey]
+  );
+
   // Leaderboards - use rewardClaims
-  const userClaimStats: Record<string, { total: number; count: number; times: number[] }> = {};
+  const userClaimStats: Record<string, { total: number; count: number; times: number[]; displayName?: string }> = {};
   rewardClaims.forEach((claim) => {
     const claimWithTiming = claim as RewardClaim & {
       codeCreatedAt?: string;
@@ -464,7 +507,19 @@ const filteredRewards = React.useMemo(() => {
       claimWithTiming.userName?.trim().toLowerCase() ||
       claim.id;
 
-    if (!userClaimStats[claimantKey]) userClaimStats[claimantKey] = { total: 0, count: 0, times: [] };
+    const claimantDisplayName =
+      claimWithTiming.userName?.trim() ||
+      claimWithTiming.userEmail?.trim() ||
+      undefined;
+
+    if (!userClaimStats[claimantKey]) {
+      userClaimStats[claimantKey] = { total: 0, count: 0, times: [], displayName: claimantDisplayName };
+    }
+
+    if (!userClaimStats[claimantKey].displayName && claimantDisplayName) {
+      userClaimStats[claimantKey].displayName = claimantDisplayName;
+    }
+
     userClaimStats[claimantKey].total += claim.claimAmount || 0;
     userClaimStats[claimantKey].count += 1;
     
@@ -510,10 +565,10 @@ const filteredRewards = React.useMemo(() => {
       count: stat.count,
     }))
     .sort((a, b) => a.avgTime - b.avgTime)
-    .slice(0, 5);
+    .slice(0, 3);
 
   // Prefer >=3 claims, but show real available data if none qualify yet.
-  const fastestClaimers = (fastestEligible.length > 0 ? fastestEligible : fastestFallback).slice(0, 5);
+  const fastestClaimers = (fastestEligible.length > 0 ? fastestEligible : fastestFallback).slice(0, 3);
 
   if (loading) {
     return (
@@ -815,15 +870,10 @@ const filteredRewards = React.useMemo(() => {
                 </thead>
                 <tbody>
                 {topClaimers.map((u, idx) => {
-                  const member = members.find(
-                    m =>
-                      m.id === u.userId ||
-                      m.uid === u.userId ||
-                      m.email.toLowerCase() === String(u.userId).toLowerCase()
-                  );
+                  const displayName = resolveMemberName(u.userId, u.displayName);
                   return (
                     <tr key={u.userId} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                      <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm font-medium truncate max-w-[120px] md:max-w-none">{member ? member.name : u.userId}</td>
+                      <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm font-medium truncate max-w-[120px] md:max-w-none">{displayName}</td>
                       <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right font-semibold text-green-600 whitespace-nowrap">₱{(u.total || 0).toLocaleString()}</td>
                       <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-center">{u.count || 0}</td>
                   </tr>
@@ -853,15 +903,10 @@ const filteredRewards = React.useMemo(() => {
                 </thead>
                 <tbody>
                 {fastestClaimers.map((u, idx) => {
-                  const member = members.find(
-                    m =>
-                      m.id === u.userId ||
-                      m.uid === u.userId ||
-                      m.email.toLowerCase() === String(u.userId).toLowerCase()
-                  );
+                  const displayName = resolveMemberName(u.userId, userClaimStats[u.userId]?.displayName);
                   return (
                     <tr key={u.userId} className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors">
-                      <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm font-medium truncate max-w-[120px] md:max-w-none">{member ? member.name : u.userId}</td>
+                      <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm font-medium truncate max-w-[120px] md:max-w-none">{displayName}</td>
                       <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right font-semibold text-blue-600 whitespace-nowrap">{Math.round((u.avgTime || 0) / 1000)}s</td>
                       <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-center">{u.count || 0}</td>
                   </tr>
@@ -1058,86 +1103,7 @@ const filteredRewards = React.useMemo(() => {
                           }
                         </td>
                         <td className="px-3 md:px-6 py-3 md:py-4 align-middle text-xs md:text-sm text-right whitespace-nowrap">{timeDisplay}</td>
-
-authorizationRequestedAmount 9600
-(number)
-authorizationRequestedEmail "kingdomoflove.international@gmail.com"
-(string)
-authorizationSource "koli-coin"
-(string)
-authorizedAt "2026-02-16T02:56:23.487Z"
-(string)
-balance 0
-(number)
-createdAt February 16, 2026 at 10:10:23 AM UTC+8
-(timestamp)
-deposit 0
-(number)
-email "kingdomoflove.international@gmail.com"
-(string)
-emailVerified true
-(boolean)
-firstName "Koli"
-(string)
-hasCompletedAuthorization true
-(boolean)
-hasPinSetup false
-(boolean)
-kycStatus "APPROVED"
-(string)
-lastExchangeAt "2026-02-16T02:57:35.259Z"
-(string)
-lastLoginAt February 16, 2026 at 10:56:14 AM UTC+8
-(timestamp)
-lastName "Test"
-(string)
-lastWithdrawnAt "2026-02-16T02:56:48.734Z"
-(string)
-linkedKoliEmail "kingdomoflove.international@gmail.com"
-(string)
-password "Koli2026!"
-(string)
-pinHash null
-(null)
-profile
-(map)
-avatar null
-(null)
-displayName "Koli Test"
-(string)
-referralCode null
-(null)
-role "member"
-(string)
-settings
-(map)
-notifications
-(map)
-email true
-(boolean)
-marketing false
-(boolean)
-security true
-(boolean)
-privacy
-(map)
-emailVisible false
-(boolean)
-profileVisible true
-(boolean)
-stats
-(map)
-referralCount 0
-(number)
-totalDonations 0
-(number)
-totalWithdrawals 0
-(number)
-status "active"
-(string)
-uid "2yWVIhHUrfadQpdHAICs6MwnfaV2"
-(string)
-vaultBalance 4600                       </tr>
+                      </tr>
                     );
                   })}
                 </tbody>
