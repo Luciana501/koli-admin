@@ -28,6 +28,15 @@ import {
 } from "@/services/firestore";
 
 const PlatformCodes = () => {
+  const generateRandomCode = (length = 6) => {
+    const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let result = "";
+    for (let index = 0; index < length; index += 1) {
+      result += charset.charAt(Math.floor(Math.random() * charset.length));
+    }
+    return result;
+  };
+
   const [codes, setCodes] = useState<PlatformCode[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -112,10 +121,10 @@ const PlatformCodes = () => {
   };
 
   const handleCreateCode = async () => {
-    if (!code.trim() || !leaderId.trim() || !leaderName.trim()) {
+    if (!leaderId.trim() || !leaderName.trim()) {
       toast({
         title: "Missing required fields",
-        description: "Code, Leader Code, and Leader Name are required.",
+        description: "Leader Code and Leader Name are required.",
         variant: "destructive",
       });
       return;
@@ -133,8 +142,10 @@ const PlatformCodes = () => {
 
     setSaving(true);
     try {
+      const finalCode = code.trim() ? code.trim().toUpperCase() : generateRandomCode(6);
+
       await createPlatformCode({
-        code,
+        code: finalCode,
         description,
         leaderId,
         leaderName,
@@ -143,7 +154,9 @@ const PlatformCodes = () => {
 
       toast({
         title: "Platform code created",
-        description: "The new leader platform code has been saved to Firestore.",
+        description: code.trim()
+          ? "The new leader platform code has been saved to Firestore."
+          : `Generated code ${finalCode} has been saved to Firestore.`,
       });
 
       resetForm();
@@ -283,6 +296,8 @@ const PlatformCodes = () => {
             onChange={(event) => setMaxUses(event.target.value)}
           />
         </div>
+
+        <p className="text-xs text-muted-foreground">Code will be generated randomly if left empty.</p>
 
         <div className="flex justify-end">
           <Button onClick={handleCreateCode} disabled={saving}>
