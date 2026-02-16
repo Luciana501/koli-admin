@@ -1,4 +1,4 @@
-import { collection, getDocs, doc, getDoc, updateDoc, addDoc, deleteDoc, query, where, orderBy, Timestamp, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, updateDoc, addDoc, deleteDoc, query, where, orderBy, Timestamp, onSnapshot, serverTimestamp, setDoc, runTransaction } from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { db, storage, functions, auth } from "@/lib/firebase";
@@ -425,6 +425,7 @@ export const subscribeToUsers = (callback: (users: User[]) => void) => {
         createdAt: toIsoString(data.createdAt),
         kycStatus: data.kycStatus || "NOT_SUBMITTED",
         kycSubmittedAt: data.kycSubmittedAt || undefined,
+        kycRejectionReason: data.kycRejectionReason || undefined,
         kycManualData: data.kycManualData || undefined,
         kycImageUrl: data.kycImageUrl || undefined,
         name: data.name || undefined,
@@ -674,6 +675,7 @@ export const fetchUsers = async (): Promise<User[]> => {
         totalAsset: data.totalAsset || 0,
         createdAt: toIsoString(data.createdAt),
         kycStatus: data.kycStatus || "NOT_SUBMITTED",
+        kycRejectionReason: data.kycRejectionReason || undefined,
         role: data.role || undefined,
         status: data.status || undefined,
         uid: data.uid || undefined,
@@ -708,6 +710,7 @@ export const fetchUserById = async (userId: string): Promise<User | null> => {
         totalAsset: data.totalAsset || 0,
         createdAt: toIsoString(data.createdAt),
         kycStatus: data.kycStatus || "NOT_SUBMITTED",
+        kycRejectionReason: data.kycRejectionReason || undefined,
         role: data.role || undefined,
         status: data.status || undefined,
         uid: data.uid || undefined,
@@ -866,6 +869,10 @@ export const subscribeToODHexWithdrawals = (callback: (withdrawals: import("@/ty
             processedAt: data.processedAt || null,
             processedBy: data.processedBy || null,
             rejectionReason: data.rejectionReason || "",
+            refundApplied: data.refundApplied === true,
+            refundAppliedAt: data.refundAppliedAt || null,
+            refundAmount: Number(data.refundAmount || 0),
+            refundTargetMemberId: data.refundTargetMemberId || "",
           } as import("@/types/admin").ODHexWithdrawal;
         })
       );
@@ -887,6 +894,57 @@ export const subscribeToODHexWithdrawals = (callback: (withdrawals: import("@/ty
 };
 
 // Update ODHex withdrawal status
+const resolveODHexMemberRef = async (
+  userId?: string,
+  userEmail?: string
+) => {
+  if (userId) {
+    const byODHexMembersDocIdRef = doc(db, "ODHexMembers", userId);
+    const byODHexMembersDocIdSnap = await getDoc(byODHexMembersDocIdRef);
+    if (byODHexMembersDocIdSnap.exists()) {
+      return byODHexMembersDocIdRef;
+    }
+
+    const byMembersDocIdRef = doc(db, "members", userId);
+    const byMembersDocIdSnap = await getDoc(byMembersDocIdRef);
+    if (byMembersDocIdSnap.exists()) {
+      return byMembersDocIdRef;
+    }
+
+    const odhexMembersByUid = await getDocs(
+      query(collection(db, "ODHexMembers"), where("uid", "==", userId))
+    );
+    if (!odhexMembersByUid.empty) {
+      return odhexMembersByUid.docs[0].ref;
+    }
+
+    const membersByUid = await getDocs(
+      query(collection(db, "members"), where("uid", "==", userId))
+    );
+    if (!membersByUid.empty) {
+      return membersByUid.docs[0].ref;
+    }
+  }
+
+  if (userEmail) {
+    const odhexMembersByEmail = await getDocs(
+      query(collection(db, "ODHexMembers"), where("email", "==", userEmail))
+    );
+    if (!odhexMembersByEmail.empty) {
+      return odhexMembersByEmail.docs[0].ref;
+    }
+
+    const membersByEmail = await getDocs(
+      query(collection(db, "members"), where("email", "==", userEmail))
+    );
+    if (!membersByEmail.empty) {
+      return membersByEmail.docs[0].ref;
+    }
+  }
+
+  return null;
+};
+
 export const updateODHexWithdrawalStatus = async (
   withdrawalId: string,
   status: "pending" | "completed" | "rejected",
@@ -895,15 +953,88 @@ export const updateODHexWithdrawalStatus = async (
 ): Promise<boolean> => {
   try {
     const withdrawalRef = doc(db, "odhexWithdrawals", withdrawalId);
-    const updateData: any = {
-      status,
-      processedAt: new Date().toISOString(),
-      processedBy: processedBy || "",
-    };
-    if (status === "rejected" && rejectionReason) {
-      updateData.rejectionReason = rejectionReason;
+
+    // Simple update path for non-rejected statuses
+    if (status !== "rejected") {
+      await updateDoc(withdrawalRef, {
+        status,
+        processedAt: new Date().toISOString(),
+        processedBy: processedBy || "",
+      });
+      return true;
     }
-    await updateDoc(withdrawalRef, updateData);
+
+    // Rejection path: update status + refund amount back to member vaultBalance atomically
+    const initialWithdrawalSnap = await getDoc(withdrawalRef);
+    if (!initialWithdrawalSnap.exists()) {
+      throw new Error("ODHex withdrawal not found");
+    }
+
+    const initialWithdrawalData = initialWithdrawalSnap.data();
+    const memberRef = await resolveODHexMemberRef(
+      initialWithdrawalData.userId,
+      initialWithdrawalData.userEmail
+    );
+
+    if (!memberRef) {
+      throw new Error("Unable to find member document for vault balance refund");
+    }
+
+    const normalizedReason =
+      rejectionReason?.trim() || "Withdrawal rejected by finance admin.";
+    const nowIso = new Date().toISOString();
+
+    await runTransaction(db, async (transaction) => {
+      const latestWithdrawalSnap = await transaction.get(withdrawalRef);
+      if (!latestWithdrawalSnap.exists()) {
+        throw new Error("ODHex withdrawal not found during transaction");
+      }
+
+      const latestWithdrawal = latestWithdrawalSnap.data() as Record<string, any>;
+      const latestStatus = String(latestWithdrawal.status || "").toLowerCase();
+
+      const baseUpdate = {
+        status,
+        processedAt: nowIso,
+        processedBy: processedBy || "",
+        rejectionReason: normalizedReason,
+      };
+
+      // Guard against duplicate refunds
+      if (latestStatus === "rejected" && latestWithdrawal.refundApplied === true) {
+        transaction.update(withdrawalRef, baseUpdate);
+        return;
+      }
+
+      const refundAmount = Number(latestWithdrawal.amount || 0);
+      if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+        throw new Error("Invalid ODHex withdrawal amount for refund");
+      }
+
+      const memberSnap = await transaction.get(memberRef);
+      if (!memberSnap.exists()) {
+        throw new Error("Member document not found during refund transaction");
+      }
+
+      const memberData = memberSnap.data() as Record<string, any>;
+      const currentVaultBalance = Number(memberData.vaultBalance || 0);
+      const nextVaultBalance = currentVaultBalance + refundAmount;
+
+      transaction.update(memberRef, {
+        vaultBalance: nextVaultBalance,
+        lastRefundAt: nowIso,
+      });
+
+      transaction.update(withdrawalRef, {
+        ...baseUpdate,
+        refundApplied: true,
+        refundAppliedAt: nowIso,
+        refundAmount,
+        refundTargetMemberId: memberRef.id,
+        refundField: "vaultBalance",
+      });
+    });
+
     return true;
   } catch (error) {
     console.error("Error updating ODHex withdrawal:", error);
@@ -1007,6 +1138,12 @@ export const subscribeToDonations = (callback: (donations: Donation[]) => void) 
         receiptPath: data.receiptPath || "",
         receiptURL,
         status: data.status || "pending",
+        rejectionReason:
+          data.rejectionReason ||
+          data.rejectionNote ||
+          data.rejectionNotes ||
+          data.note ||
+          "",
         createdAt: data.createdAt || new Date().toISOString(),
         approvedAt: data.approvedAt || null,
         approvedBy: data.approvedBy || null,
@@ -1030,7 +1167,8 @@ export const subscribeToDonations = (callback: (donations: Donation[]) => void) 
 // Update donation status
 export const updateDonationStatus = async (
   donationId: string,
-  status: "approved" | "rejected"
+  status: "approved" | "rejected",
+  rejectionReason?: string
 ): Promise<void> => {
   try {
     const donationRef = doc(db, "donationContracts", donationId);
@@ -1047,11 +1185,20 @@ export const updateDonationStatus = async (
       status,
     };
 
+    if (status === "rejected") {
+      const trimmedReason = rejectionReason?.trim() || "";
+      if (!trimmedReason) {
+        throw new Error("Rejection reason is required");
+      }
+      updateData.rejectionReason = trimmedReason;
+    }
+
     // If approved, set approval metadata
     if (status === "approved") {
       const now = new Date();
       updateData.approvedAt = now.toISOString();
       updateData.donationStartDate = now.toISOString();
+      updateData.rejectionReason = "";
       
       // Calculate contract end date (30 days from now)
       const endDate = new Date(now);
@@ -1130,6 +1277,7 @@ export const subscribeToKYC = (callback: (users: User[]) => void) => {
         createdAt: data.createdAt || new Date().toISOString(),
         kycStatus: data.kycStatus || undefined,
         kycSubmittedAt: data.kycSubmittedAt || undefined,
+        kycRejectionReason: data.kycRejectionReason || undefined,
         kycManualData: data.kycManualData || undefined,
         kycImageUrl: kycImageUrl,
       };
@@ -1148,14 +1296,17 @@ export const subscribeToKYC = (callback: (users: User[]) => void) => {
 // Update KYC status
 export const updateKYCStatus = async (
   userId: string,
-  status: "APPROVED" | "REJECTED"
+  status: "APPROVED" | "REJECTED",
+  rejectionReason?: string
 ): Promise<void> => {
   try {
     const userRef = doc(db, "members", userId);
-    
+
     await updateDoc(userRef, {
       kycStatus: status,
       kycProcessedAt: new Date().toISOString(),
+      kycRejectionReason:
+        status === "REJECTED" ? (rejectionReason?.trim() || "") : "",
     });
   } catch (error) {
     console.error("Error updating KYC status:", error);

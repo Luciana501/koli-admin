@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 const Donations = () => {
   const [donations, setDonations] = useState<Donation[]>([]);
@@ -39,6 +40,9 @@ const Donations = () => {
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string>("");
   const [selectedDonation, setSelectedDonation] = useState<Donation | null>(null);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectingDonation, setRejectingDonation] = useState<Donation | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
   const { toast } = useToast();
   const { adminType } = useAuth();
   const isFinanceAdmin = adminType === "finance";
@@ -177,7 +181,7 @@ const Donations = () => {
     }
   };
 
-  const handleReject = async (id: string) => {
+  const openRejectDialog = (donation: Donation) => {
     if (!isFinanceAdmin) {
       toast({
         title: "View Only",
@@ -186,13 +190,47 @@ const Donations = () => {
       });
       return;
     }
-    setProcessingId(id);
+
+    setRejectingDonation(donation);
+    setRejectionReason(donation.rejectionReason || "");
+    setRejectDialogOpen(true);
+  };
+
+  const handleReject = async () => {
+    if (!rejectingDonation) {
+      return;
+    }
+
+    const trimmedReason = rejectionReason.trim();
+    if (!trimmedReason) {
+      toast({
+        title: "Reason Required",
+        description: "Please provide a rejection reason before rejecting this donation.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const donationId = rejectingDonation.id;
+    setProcessingId(donationId);
     try {
-      await updateDonationStatus(id, "rejected");
+      await updateDonationStatus(donationId, "rejected", trimmedReason);
       toast({
         title: "Success",
         description: "Donation rejected successfully",
       });
+
+      if (selectedDonation?.id === donationId) {
+        setSelectedDonation({
+          ...selectedDonation,
+          status: "rejected",
+          rejectionReason: trimmedReason,
+        });
+      }
+
+      setRejectDialogOpen(false);
+      setRejectingDonation(null);
+      setRejectionReason("");
     } catch (error) {
       toast({
         title: "Error",
@@ -448,7 +486,7 @@ const Donations = () => {
                           <IconCheck className="h-4 w-4" />
                         </button>
                         <button
-                          onClick={() => handleReject(donation.id)}
+                          onClick={() => openRejectDialog(donation)}
                           disabled={processingId === donation.id}
                           className="p-2 rounded-lg bg-red-500/10 text-red-600 disabled:opacity-50"
                           title="Reject"
@@ -530,7 +568,7 @@ const Donations = () => {
                               <IconCheck className="h-5 w-5" />
                             </button>
                             <button
-                              onClick={() => handleReject(donation.id)}
+                              onClick={() => openRejectDialog(donation)}
                               disabled={processingId === donation.id}
                               className="p-2.5 rounded-lg bg-red-500/10 text-red-600 hover:bg-red-500/20 transition-all hover:scale-110 disabled:opacity-50 disabled:hover:scale-100"
                               title="Reject"
@@ -833,6 +871,14 @@ const Donations = () => {
                         : "Pending"}
                     </span>
                   </div>
+                  {selectedDonation.status === "rejected" && (
+                    <div className="md:col-span-2">
+                      <p className="text-xs text-muted-foreground mb-1">Rejection Reason</p>
+                      <p className="font-semibold whitespace-pre-wrap">
+                        {selectedDonation.rejectionReason?.trim() || "No rejection reason provided."}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -912,6 +958,53 @@ const Donations = () => {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={rejectDialogOpen}
+        onOpenChange={(open) => {
+          setRejectDialogOpen(open);
+          if (!open) {
+            setRejectingDonation(null);
+            setRejectionReason("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reject Donation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Add a rejection reason so the user knows what to correct.
+            </p>
+            <Textarea
+              value={rejectionReason}
+              onChange={(event) => setRejectionReason(event.target.value)}
+              placeholder="Enter rejection reason"
+              rows={4}
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setRejectDialogOpen(false);
+                  setRejectingDonation(null);
+                  setRejectionReason("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleReject}
+                disabled={processingId === rejectingDonation?.id}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                Reject Donation
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

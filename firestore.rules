@@ -4,7 +4,7 @@ service cloud.firestore {
     // Helper function to check if a reward code is expired
     function isRewardExpired(rewardData) {
       return rewardData.expiresAt != null && 
-             request.time > timestamp.date(rewardData.expiresAt);
+             request.time > rewardData.expiresAt;
     }
     
     // Helper function to check if user is admin
@@ -41,42 +41,71 @@ service cloud.firestore {
     
     // Admins collection - MUST come before catch-all rule to avoid circular dependency
     match /admins/{adminId} {
-      // Allow authenticated users to read their own admin document
-      allow read: if request.auth != null && request.auth.uid == adminId;
+      // Allow authenticated users to read admin docs (needed for role bootstrap checks)
+      allow read: if request.auth != null;
       // Only super admins can manage admin accounts (or use admin SDK)
       allow write: if false;
     }
     
     // Members collection
     match /members/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      // Allow users to update their own document (for MANA balance, etc.)
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isAdmin() || (request.auth != null && (
+        request.auth.uid == userId ||
+        resource.data.uid == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.memberId == request.auth.uid
+      ));
+
+      allow create: if isAdmin() || (request.auth != null && (
+        request.auth.uid == userId ||
+        request.resource.data.uid == request.auth.uid ||
+        request.resource.data.userId == request.auth.uid ||
+        request.resource.data.memberId == request.auth.uid
+      ));
+
+      allow update: if isAdmin() || (request.auth != null && (
+        request.auth.uid == userId ||
+        resource.data.uid == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.memberId == request.auth.uid
+      ));
+
+      allow delete: if isAdmin();
     }
 
     // ODHex members and ledger
     match /ODHexMembers/{memberId} {
-      allow read: if request.auth != null && (
+      allow read: if isAdmin() || (request.auth != null && (
         request.auth.uid == memberId ||
-        resource.data.uid == request.auth.uid
-      );
+        resource.data.uid == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.memberId == request.auth.uid
+      ));
 
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow create: if isAdmin() || (request.auth != null && (
+        request.resource.data.uid == request.auth.uid ||
+        request.resource.data.userId == request.auth.uid ||
+        request.resource.data.memberId == request.auth.uid
+      ));
 
-      allow update: if request.auth != null && (
+      allow update: if isAdmin() || (request.auth != null && (
         request.auth.uid == memberId ||
-        resource.data.uid == request.auth.uid
-      );
+        resource.data.uid == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.memberId == request.auth.uid
+      ));
 
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     match /ODHexMembers/{memberId}/odhexLedger/{entryId} {
-      allow read: if request.auth != null && (
+      allow read: if isAdmin() || (request.auth != null && (
         request.auth.uid == memberId ||
-        get(/databases/$(database)/documents/ODHexMembers/$(memberId)).data.uid == request.auth.uid
-      );
-      allow write: if false;
+        get(/databases/$(database)/documents/ODHexMembers/$(memberId)).data.uid == request.auth.uid ||
+        get(/databases/$(database)/documents/ODHexMembers/$(memberId)).data.userId == request.auth.uid ||
+        get(/databases/$(database)/documents/ODHexMembers/$(memberId)).data.memberId == request.auth.uid
+      ));
+      allow write: if isAdmin();
     }
     
     // Donation Contracts - Users can only access their own
@@ -95,13 +124,27 @@ service cloud.firestore {
     // P2P Payout Queue - Users can create their own withdrawal requests
     match /payout_queue/{payoutId} {
       // Allow users to create payout requests for themselves
-      allow create: if request.auth != null && 
-                       request.resource.data.userId == request.auth.uid;
+      allow create: if isAdmin() || (request.auth != null && 
+                       (request.resource.data.userId == request.auth.uid || request.resource.data.uid == request.auth.uid || request.resource.data.memberId == request.auth.uid));
       // Allow users to read their own payout requests
-      allow read: if request.auth != null && 
-                     resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && 
+                     (resource.data.userId == request.auth.uid || resource.data.uid == request.auth.uid || resource.data.memberId == request.auth.uid));
       // Only admins can update/delete
-      allow update, delete: if false;
+      allow update, delete: if isAdmin();
+    }
+
+    // ODHex Withdrawals - Users can submit and view their own requests
+    match /odhexWithdrawals/{withdrawalId} {
+      // Allow users to create ODHex withdrawal requests for themselves
+      allow create: if isAdmin() || (request.auth != null &&
+                       (request.resource.data.userId == request.auth.uid || request.resource.data.uid == request.auth.uid || request.resource.data.memberId == request.auth.uid));
+
+      // Allow users to read only their own withdrawal requests
+      allow read: if isAdmin() || (request.auth != null &&
+                     (resource.data.userId == request.auth.uid || resource.data.uid == request.auth.uid || resource.data.memberId == request.auth.uid));
+
+      // Updates/deletes are restricted to admins (via catch-all isAdmin rule)
+      allow update, delete: if isAdmin();
     }
     
     // Legacy deposits collection (keep for backwards compatibility)

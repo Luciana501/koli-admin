@@ -12,6 +12,7 @@ export interface User {
   createdAt: string;
   kycStatus?: "PENDING" | "APPROVED" | "REJECTED" | "NOT_SUBMITTED";
   kycSubmittedAt?: string;
+  kycRejectionReason?: string;
   kycManualData?: {
     address?: string;
     phoneNumber?: string;
@@ -76,6 +77,7 @@ export interface Donation {
   donationStartDate?: string | null;
   lastWithdrawalDate?: string | null;
   withdrawalsCount: number;
+  rejectionReason?: string;
   userName?: string;
   userEmail?: string;
   userPhone?: string;
@@ -112,4 +114,8 @@ export interface ODHexWithdrawal {
   processedAt: string | null;
   processedBy?: string | null;
   rejectionReason?: string;
+  refundApplied?: boolean;
+  refundAppliedAt?: string | null;
+  refundAmount?: number;
+  refundTargetMemberId?: string;
 }

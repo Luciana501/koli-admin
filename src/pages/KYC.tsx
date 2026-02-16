@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 const KYC = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -26,6 +27,7 @@ const KYC = () => {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
   const { toast } = useToast();
   const itemsPerPage = 10;
   const [kycStatusFilter, setKycStatusFilter] = useState("all");
@@ -75,6 +77,7 @@ const KYC = () => {
     console.log("Viewing KYC for user:", user);
     console.log("KYC Image URL:", user.kycImageUrl);
     setSelectedUser(user);
+    setRejectionReason(user.kycRejectionReason || "");
     setModalOpen(true);
   };
 
@@ -99,14 +102,26 @@ const KYC = () => {
   };
 
   const handleReject = async (id: string) => {
+    const trimmedReason = rejectionReason.trim();
+
+    if (!trimmedReason) {
+      toast({
+        title: "Reason required",
+        description: "Please provide a rejection reason before rejecting this KYC application.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setProcessingId(id);
     try {
-      await updateKYCStatus(id, "REJECTED");
+      await updateKYCStatus(id, "REJECTED", trimmedReason);
       toast({
         title: "Success",
         description: "KYC application rejected",
       });
       setModalOpen(false);
+      setRejectionReason("");
     } catch (error) {
       toast({
         title: "Error",
@@ -396,6 +411,12 @@ const KYC = () => {
                       {selectedUser.kycStatus || "PENDING"}
                     </span>
                   </div>
+                  {selectedUser.kycStatus === "REJECTED" && selectedUser.kycRejectionReason && (
+                    <div className="md:col-span-2">
+                      <p className="text-xs text-muted-foreground mb-1">Rejection Reason</p>
+                      <p className="font-semibold whitespace-pre-wrap">{selectedUser.kycRejectionReason}</p>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -446,7 +467,17 @@ const KYC = () => {
 
               {/* Action Buttons */}
               {selectedUser.kycStatus === "PENDING" && (
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 pt-4 border-t">
+                <div className="space-y-3 pt-4 border-t">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Rejection Reason (required to reject)</label>
+                    <Textarea
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      placeholder="Explain why this KYC application is being rejected"
+                      rows={3}
+                    />
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3">
                   <button
                     onClick={() => handleReject(selectedUser.id)}
                     disabled={processingId === selectedUser.id}
@@ -463,6 +494,7 @@ const KYC = () => {
                     <IconCheck className="h-5 w-5" />
                     Approve Application
                   </button>
+                  </div>
                 </div>
               )}
             </div>

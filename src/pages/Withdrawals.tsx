@@ -738,7 +738,7 @@ const Withdrawals = () => {
       await updateODHexWithdrawalStatus(withdrawal.id, "rejected", adminType || "", reason);
       toast({
         title: "Withdrawal Rejected",
-        description: `Withdrawal has been rejected.`,
+        description: `Withdrawal has been rejected and refunded to the user's vault balance.`,
         variant: "destructive",
       });
     } catch (error) {
@@ -1046,6 +1046,11 @@ const Withdrawals = () => {
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm font-semibold">₱{withdrawal.amount.toLocaleString()}</div>
+                      {withdrawal.status === "rejected" && (
+                        <div className="text-xs text-muted-foreground">
+                          Refunded: ₱{(withdrawal.refundAmount || withdrawal.amount).toLocaleString()}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm capitalize">{withdrawal.method} • {withdrawal.provider}</div>
@@ -1062,7 +1067,11 @@ const Withdrawals = () => {
                           ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
                           : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
                       }`}>
-                        {withdrawal.status === "completed" ? "Completed" : "Rejected"}
+                        {withdrawal.status === "completed"
+                          ? "Completed"
+                          : withdrawal.refundApplied
+                          ? "Refunded"
+                          : "Rejected"}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -1552,7 +1561,9 @@ const Withdrawals = () => {
                           ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
                           : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
                       }`}>
-                        {selectedOdhexWithdrawal.status}
+                        {selectedOdhexWithdrawal.status === "rejected" && selectedOdhexWithdrawal.refundApplied
+                          ? "refunded"
+                          : selectedOdhexWithdrawal.status}
                       </span>
                     </div>
                   </div>
@@ -1596,6 +1607,40 @@ const Withdrawals = () => {
                 <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-200 dark:border-red-800">
                   <h3 className="font-semibold text-red-800 dark:text-red-300 mb-2">Rejection Reason</h3>
                   <p className="text-sm text-red-700 dark:text-red-400">{selectedOdhexWithdrawal.rejectionReason}</p>
+                </div>
+              )}
+
+              {selectedOdhexWithdrawal.status === "rejected" && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <h3 className="font-semibold text-blue-800 dark:text-blue-300 mb-2">Refund Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="font-medium text-blue-700 dark:text-blue-300">Refund Amount:</span>
+                      <div className="mt-1 text-blue-900 dark:text-blue-200 font-semibold">
+                        ₱{(selectedOdhexWithdrawal.refundAmount || selectedOdhexWithdrawal.amount).toLocaleString()}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-blue-700 dark:text-blue-300">Refund Status:</span>
+                      <div className="mt-1 text-blue-900 dark:text-blue-200">
+                        {selectedOdhexWithdrawal.refundApplied ? "Applied" : "Pending"}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-blue-700 dark:text-blue-300">Target Member ID:</span>
+                      <div className="mt-1 font-mono text-xs text-blue-900 dark:text-blue-200 break-all">
+                        {selectedOdhexWithdrawal.refundTargetMemberId || "N/A"}
+                      </div>
+                    </div>
+                    {selectedOdhexWithdrawal.refundAppliedAt && (
+                      <div>
+                        <span className="font-medium text-blue-700 dark:text-blue-300">Refunded At:</span>
+                        <div className="mt-1 text-blue-900 dark:text-blue-200 text-xs">
+                          {new Date(selectedOdhexWithdrawal.refundAppliedAt).toLocaleString()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
