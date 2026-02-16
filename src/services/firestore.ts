@@ -54,6 +54,14 @@ export interface PlatformCode {
   createdAt: string;
 }
 
+export interface Leader {
+  id: string;
+  name: string;
+  codeName: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
 const toIsoString = (value: unknown): string => {
   if (!value) return new Date().toISOString();
   if (typeof value === "string") return value;
@@ -1385,6 +1393,112 @@ export const updatePlatformCodeStatus = async (codeId: string, isActive: boolean
     isActive,
     updatedAt: serverTimestamp(),
   });
+};
+
+export const updatePlatformCode = async (
+  codeId: string,
+  payload: {
+    description: string;
+    leaderId: string;
+    leaderName: string;
+    maxUses: number | null;
+    isActive: boolean;
+  }
+): Promise<void> => {
+  const codeRef = doc(db, "platformCodes", codeId);
+  await updateDoc(codeRef, {
+    description: payload.description.trim(),
+    leaderId: payload.leaderId.trim(),
+    leaderName: payload.leaderName.trim(),
+    maxUses: payload.maxUses,
+    isActive: payload.isActive,
+    updatedAt: serverTimestamp(),
+  });
+};
+
+export const deletePlatformCode = async (codeId: string): Promise<void> => {
+  const codeRef = doc(db, "platformCodes", codeId);
+  await deleteDoc(codeRef);
+};
+
+export const subscribeToLeaders = (callback: (leaders: Leader[]) => void) => {
+  const leadersRef = collection(db, "leaders");
+  const q = query(leadersRef);
+
+  const unsubscribe = onSnapshot(
+    q,
+    (snapshot) => {
+      const leaders = snapshot.docs
+        .map((docSnapshot) => {
+          const data = docSnapshot.data();
+          return {
+            id: docSnapshot.id,
+            name: data.name || "",
+            codeName: data.codeName || "",
+            isActive: typeof data.isActive === "boolean" ? data.isActive : true,
+            createdAt: toIsoString(data.createdAt),
+          } satisfies Leader;
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      callback(leaders);
+    },
+    (error) => {
+      console.error("Error listening to leaders:", error);
+      callback([]);
+    }
+  );
+
+  return unsubscribe;
+};
+
+export const createLeader = async (payload: { name: string; codeName: string }): Promise<void> => {
+  const normalizedCodeName = payload.codeName.trim();
+  const normalizedName = payload.name.trim();
+
+  if (!normalizedName) {
+    throw new Error("Leader name is required");
+  }
+
+  if (!normalizedCodeName) {
+    throw new Error("Leader code name is required");
+  }
+
+  const leaderRef = doc(db, "leaders", normalizedCodeName);
+  const existing = await getDoc(leaderRef);
+  if (existing.exists()) {
+    throw new Error("Leader already exists");
+  }
+
+  await setDoc(leaderRef, {
+    name: normalizedName,
+    codeName: normalizedCodeName,
+    isActive: true,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+};
+
+export const updateLeader = async (
+  leaderId: string,
+  payload: { name: string; isActive: boolean }
+): Promise<void> => {
+  const normalizedName = payload.name.trim();
+  if (!normalizedName) {
+    throw new Error("Leader name is required");
+  }
+
+  const leaderRef = doc(db, "leaders", leaderId);
+  await updateDoc(leaderRef, {
+    name: normalizedName,
+    isActive: payload.isActive,
+    updatedAt: serverTimestamp(),
+  });
+};
+
+export const deleteLeader = async (leaderId: string): Promise<void> => {
+  const leaderRef = doc(db, "leaders", leaderId);
+  await deleteDoc(leaderRef);
 };
 
 // Create new user
