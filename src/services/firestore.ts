@@ -62,6 +62,19 @@ export interface Leader {
   createdAt: string;
 }
 
+export interface MaintenanceSchedulerConfig {
+  enabled: boolean;
+  startAt: string;
+  endAt: string;
+  durationHours: number;
+  startInHours: number;
+  startInMinutes: number;
+  message: string;
+  timezone: string;
+  updatedAt: string;
+  updatedBy: string;
+}
+
 const toIsoString = (value: unknown): string => {
   if (!value) return new Date().toISOString();
   if (typeof value === "string") return value;
@@ -1499,6 +1512,84 @@ export const updateLeader = async (
 export const deleteLeader = async (leaderId: string): Promise<void> => {
   const leaderRef = doc(db, "leaders", leaderId);
   await deleteDoc(leaderRef);
+};
+
+export const subscribeToMaintenanceScheduler = (
+  callback: (config: MaintenanceSchedulerConfig) => void
+) => {
+  const settingsRef = doc(db, "systemSettings", "maintenanceScheduler");
+
+  const unsubscribe = onSnapshot(
+    settingsRef,
+    (snapshot) => {
+      const data = snapshot.data() || {};
+      callback({
+        enabled: Boolean(data.enabled),
+        startAt: typeof data.startAt === "string" ? data.startAt : "",
+        endAt: typeof data.endAt === "string" ? data.endAt : "",
+        durationHours: typeof data.durationHours === "number" && data.durationHours > 0 ? data.durationHours : 0,
+        startInHours: typeof data.startInHours === "number" && data.startInHours > 0 ? data.startInHours : 0,
+        startInMinutes: typeof data.startInMinutes === "number" && data.startInMinutes >= 0 ? data.startInMinutes : 0,
+        message: typeof data.message === "string" ? data.message : "",
+        timezone: typeof data.timezone === "string" ? data.timezone : "Asia/Manila",
+        updatedAt: toIsoString(data.updatedAt),
+        updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : "",
+      });
+    },
+    (error) => {
+      console.error("Error listening to maintenance scheduler:", error);
+      callback({
+        enabled: false,
+        startAt: "",
+        endAt: "",
+        durationHours: 0,
+        startInHours: 0,
+        startInMinutes: 0,
+        message: "",
+        timezone: "Asia/Manila",
+        updatedAt: new Date().toISOString(),
+        updatedBy: "",
+      });
+    }
+  );
+
+  return unsubscribe;
+};
+
+export const saveMaintenanceScheduler = async (payload: {
+  enabled: boolean;
+  startAt: string;
+  endAt: string;
+  durationHours: number;
+  startInHours?: number;
+  startInMinutes?: number;
+  message: string;
+  timezone?: string;
+}): Promise<void> => {
+  const settingsRef = doc(db, "systemSettings", "maintenanceScheduler");
+
+  await setDoc(
+    settingsRef,
+    {
+      enabled: payload.enabled,
+      startAt: payload.startAt,
+      endAt: payload.endAt,
+      durationHours: payload.durationHours,
+      startInHours:
+        typeof payload.startInHours === "number" && payload.startInHours > 0
+          ? payload.startInHours
+          : 0,
+      startInMinutes:
+        typeof payload.startInMinutes === "number" && payload.startInMinutes >= 0
+          ? payload.startInMinutes
+          : 0,
+      message: payload.message.trim(),
+      timezone: payload.timezone || "Asia/Manila",
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || "",
+    },
+    { merge: true }
+  );
 };
 
 // Create new user
