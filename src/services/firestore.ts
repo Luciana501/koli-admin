@@ -1,5 +1,5 @@
 import { collection, getDocs, doc, getDoc, updateDoc, addDoc, deleteDoc, query, where, orderBy, Timestamp, onSnapshot, serverTimestamp, setDoc, runTransaction } from "firebase/firestore";
-import { ref, getDownloadURL } from "firebase/storage";
+import { ref, getDownloadURL, uploadBytes, deleteObject } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { db, storage, functions, auth } from "@/lib/firebase";
 import { User, Withdrawal, Donation } from "@/types/admin";
@@ -60,6 +60,18 @@ export interface Leader {
   codeName: string;
   isActive: boolean;
   createdAt: string;
+}
+
+export interface NewsPost {
+  id: string;
+  title: string;
+  imageUrl: string;
+  imagePath: string;
+  category: string;
+  details: string;
+  postedAt: string;
+  createdAt: string;
+  createdBy: string;
 }
 
 export interface MaintenanceSchedulerConfig {
@@ -1512,6 +1524,170 @@ export const updateLeader = async (
 export const deleteLeader = async (leaderId: string): Promise<void> => {
   const leaderRef = doc(db, "leaders", leaderId);
   await deleteDoc(leaderRef);
+};
+
+export const createNewsPost = async (payload: {
+  title: string;
+  category: string;
+  details: string;
+  postedAt: string;
+  imageFile: File;
+}): Promise<void> => {
+  const normalizedTitle = payload.title.trim();
+  const normalizedCategory = payload.category.trim();
+  const normalizedDetails = payload.details.trim();
+
+  if (!normalizedTitle) {
+    throw new Error("News title is required");
+  }
+
+  if (!normalizedCategory) {
+    throw new Error("Category is required");
+  }
+
+  if (!normalizedDetails) {
+    throw new Error("Details are required");
+  }
+
+  if (!payload.imageFile) {
+    throw new Error("Image is required");
+  }
+
+  const postedDate = new Date(payload.postedAt);
+  if (Number.isNaN(postedDate.getTime())) {
+    throw new Error("Invalid posted date and time");
+  }
+
+  const safeFileName = payload.imageFile.name.replace(/\s+/g, "-");
+  const imagePath = `news/${Date.now()}-${safeFileName}`;
+  const imageRef = ref(storage, imagePath);
+
+  await uploadBytes(imageRef, payload.imageFile);
+  const imageUrl = await getDownloadURL(imageRef);
+
+  await addDoc(collection(db, "news"), {
+    title: normalizedTitle,
+    imageUrl,
+    imagePath,
+    category: normalizedCategory,
+    details: normalizedDetails,
+    postedAt: postedDate.toISOString(),
+    createdAt: serverTimestamp(),
+    createdBy: auth.currentUser?.uid || "",
+  });
+};
+
+export const subscribeToNewsPosts = (callback: (posts: NewsPost[]) => void) => {
+  const newsRef = collection(db, "news");
+  const newsQuery = query(newsRef, orderBy("postedAt", "desc"));
+
+  const unsubscribe = onSnapshot(
+    newsQuery,
+    (snapshot) => {
+      const posts = snapshot.docs.map((docSnapshot) => {
+        const data = docSnapshot.data();
+        return {
+          id: docSnapshot.id,
+          title: data.title || "",
+          imageUrl: data.imageUrl || "",
+          imagePath: data.imagePath || "",
+          category: data.category || "",
+          details: data.details || "",
+          postedAt: toIsoString(data.postedAt),
+          createdAt: toIsoString(data.createdAt),
+          createdBy: data.createdBy || "",
+        } satisfies NewsPost;
+      });
+
+      callback(posts);
+    },
+    (error) => {
+      console.error("Error listening to news posts:", error);
+      callback([]);
+    }
+  );
+
+  return unsubscribe;
+};
+
+export const updateNewsPost = async (
+  postId: string,
+  payload: {
+    title: string;
+    category: string;
+    details: string;
+    postedAt: string;
+    imageFile?: File | null;
+    currentImagePath?: string;
+  }
+): Promise<void> => {
+  const normalizedTitle = payload.title.trim();
+  const normalizedCategory = payload.category.trim();
+  const normalizedDetails = payload.details.trim();
+
+  if (!normalizedTitle) {
+    throw new Error("News title is required");
+  }
+
+  if (!normalizedCategory) {
+    throw new Error("Category is required");
+  }
+
+  if (!normalizedDetails) {
+    throw new Error("Details are required");
+  }
+
+  const postedDate = new Date(payload.postedAt);
+  if (Number.isNaN(postedDate.getTime())) {
+    throw new Error("Invalid posted date and time");
+  }
+
+  let imageUrl: string | undefined;
+  let imagePath: string | undefined;
+
+  if (payload.imageFile) {
+    const safeFileName = payload.imageFile.name.replace(/\s+/g, "-");
+    imagePath = `news/${Date.now()}-${safeFileName}`;
+    const imageRef = ref(storage, imagePath);
+
+    await uploadBytes(imageRef, payload.imageFile);
+    imageUrl = await getDownloadURL(imageRef);
+
+    if (payload.currentImagePath) {
+      try {
+        await deleteObject(ref(storage, payload.currentImagePath));
+      } catch (error) {
+        console.warn("Failed to delete previous news image:", error);
+      }
+    }
+  }
+
+  const updatePayload: Record<string, unknown> = {
+    title: normalizedTitle,
+    category: normalizedCategory,
+    details: normalizedDetails,
+    postedAt: postedDate.toISOString(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (imageUrl && imagePath) {
+    updatePayload.imageUrl = imageUrl;
+    updatePayload.imagePath = imagePath;
+  }
+
+  await updateDoc(doc(db, "news", postId), updatePayload);
+};
+
+export const deleteNewsPost = async (postId: string, imagePath?: string): Promise<void> => {
+  if (imagePath) {
+    try {
+      await deleteObject(ref(storage, imagePath));
+    } catch (error) {
+      console.warn("Failed to delete news image from storage:", error);
+    }
+  }
+
+  await deleteDoc(doc(db, "news", postId));
 };
 
 export const subscribeToMaintenanceScheduler = (
