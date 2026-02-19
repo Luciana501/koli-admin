@@ -1,8 +1,22 @@
 import React, { useState, useEffect } from "react";
 import { User } from "@/types/admin";
 import { subscribeToKYC, updateKYCStatus } from "@/services/firestore";
+import {
+  IDValidationResponse,
+  ImageValidationResponse,
+  SupportedIDType,
+  analyzeIdentificationImage,
+  validateIdentificationNumber,
+} from "@/services/idValidation";
 import { IconCheck, IconX, IconUser, IconEye, IconPhone, IconMapPin, IconCalendar, IconDownload, IconFilter } from "@tabler/icons-react";
-import Pagination from "@/components/Pagination";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -28,6 +42,10 @@ const KYC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [mlValidationByUser, setMlValidationByUser] = useState<Record<string, IDValidationResponse>>({});
+  const [imageValidationByUser, setImageValidationByUser] = useState<Record<string, ImageValidationResponse>>({});
+  const [analysisLoadingUserId, setAnalysisLoadingUserId] = useState<string | null>(null);
+  const [imageLoadError, setImageLoadError] = useState(false);
   const { toast } = useToast();
   const itemsPerPage = 10;
   const [kycStatusFilter, setKycStatusFilter] = useState("all");
@@ -73,11 +91,182 @@ const KYC = () => {
     historyStartIndex + itemsPerPage
   );
 
+  const getIdentificationNumber = (user: User): string => {
+    const manualData = user.kycManualData as Record<string, unknown> | undefined;
+    const candidates = [
+      user.kycManualData?.idNumber,
+      typeof manualData?.identificationNumber === "string" ? manualData.identificationNumber : "",
+      typeof manualData?.idNo === "string" ? manualData.idNo : "",
+    ];
+
+    const found = candidates.find((candidate) => typeof candidate === "string" && candidate.trim().length > 0);
+    return found?.trim() || "";
+  };
+
+  const getIdentificationType = (user: User): SupportedIDType => {
+    const manualData = user.kycManualData as Record<string, unknown> | undefined;
+    const rawType = (
+      user.kycManualData?.identificationType ||
+      (typeof manualData?.idType === "string" ? manualData.idType : "") ||
+      "Others"
+    ).trim();
+
+    const allowedTypes: SupportedIDType[] = [
+      "Philippine Passport",
+      "Driver's License",
+      "SSS ID",
+      "GSIS ID",
+      "UMID",
+      "PhilHealth ID",
+      "TIN ID",
+      "Postal ID",
+      "Voter's ID",
+      "PRC ID",
+      "Senior Citizen ID",
+      "PWD ID",
+      "National ID",
+      "Others",
+    ];
+
+    if (rawType === "UMID (Unified Multi-Purpose ID)") return "UMID";
+    if (rawType === "PRC ID (Professional License)") return "PRC ID";
+    if (rawType === "National ID (PhilSys)") return "National ID";
+
+    return allowedTypes.includes(rawType as SupportedIDType) ? (rawType as SupportedIDType) : "Others";
+  };
+
+  const selectedIdNumber = selectedUser ? getIdentificationNumber(selectedUser) : "";
+  const selectedIdType = selectedUser ? getIdentificationType(selectedUser) : "Others";
+  const selectedMlResult = selectedUser ? mlValidationByUser[selectedUser.id] : undefined;
+  const selectedImageResult = selectedUser ? imageValidationByUser[selectedUser.id] : undefined;
+  const isSelectedMlLoading = selectedUser ? analysisLoadingUserId === selectedUser.id : false;
+
+  const getConfidenceLabel = (confidence: number): "Low" | "Medium" | "High" => {
+    if (confidence >= 0.8) return "High";
+    if (confidence >= 0.6) return "Medium";
+    return "Low";
+  };
+
+  const getCheckBadgeClass = (status: "pass" | "warn" | "fail"): string => {
+    if (status === "pass") return "bg-green-500/15 text-green-600";
+    if (status === "warn") return "bg-amber-500/15 text-amber-600";
+    return "bg-red-500/15 text-red-600";
+  };
+
+  const runMlValidation = async (user: User, force = false): Promise<IDValidationResponse | null> => {
+    const idNumber = getIdentificationNumber(user);
+    const idType = getIdentificationType(user);
+    if (!idNumber) {
+      return null;
+    }
+
+    const cached = mlValidationByUser[user.id];
+    if (cached && !force) {
+      return cached;
+    }
+
+    setAnalysisLoadingUserId(user.id);
+    try {
+      const result = await validateIdentificationNumber(idNumber, idType);
+      setMlValidationByUser((prev) => ({ ...prev, [user.id]: result }));
+      return result;
+    } catch (error) {
+      console.error("Failed to validate ID with ML service:", error);
+      toast({
+        title: "ML check unavailable",
+        description: "Unable to validate this ID right now. Please ensure the ID validation API is running.",
+        variant: "destructive",
+      });
+      return null;
+    } finally {
+      setAnalysisLoadingUserId((prev) => (prev === user.id ? null : prev));
+    }
+  };
+
+  const runImageValidation = async (user: User, force = false): Promise<ImageValidationResponse | null> => {
+    const imageUrl = user.kycImageUrl?.trim();
+    const idType = getIdentificationType(user);
+    const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+    
+    console.log("runImageValidation called:", { userId: user.id, imageUrl, idType, userName, force });
+    
+    if (!imageUrl) {
+      return null;
+    }
+
+    const cached = imageValidationByUser[user.id];
+    if (cached && !force) {
+      console.log("Returning cached result");
+      return cached;
+    }
+
+    // Force clear cache when explicitly requested
+    if (force && cached) {
+      console.log("Force flag set - clearing cached result");
+      setImageValidationByUser((prev) => {
+        const newState = { ...prev };
+        delete newState[user.id];
+        return newState;
+      });
+    }
+
+    setAnalysisLoadingUserId(user.id);
+    try {
+      console.log("Making API call to analyze-id-image endpoint");
+      const result = await analyzeIdentificationImage(imageUrl, idType, userName);
+      console.log("API call successful, result:", result);
+      setImageValidationByUser((prev) => ({ ...prev, [user.id]: result }));
+      return result;
+    } catch (error) {
+      console.error("Failed to validate image with ML service:", error);
+      toast({
+        title: "Image analysis unavailable",
+        description: "Unable to analyze this KYC image right now. Please ensure the ID validation API is running.",
+        variant: "destructive",
+      });
+      return null;
+    } finally {
+      setAnalysisLoadingUserId((prev) => (prev === user.id ? null : prev));
+    }
+  };
+
+  const runFullAnalysis = async (user: User): Promise<void> => {
+    await runMlValidation(user, true);
+    await runImageValidation(user, true);
+  };
+
+  const getCombinedAnalysisForUser = (user: User): { status: "Valid" | "Invalid"; reasons: string[] } | null => {
+    const idNumber = getIdentificationNumber(user);
+    const numberResult = mlValidationByUser[user.id];
+    const imageResult = imageValidationByUser[user.id];
+    const hasImage = Boolean(user.kycImageUrl);
+
+    if (idNumber && !numberResult) {
+      return null;
+    }
+
+    if (hasImage && !imageResult) {
+      return null;
+    }
+
+    const reasons = [
+      ...(numberResult?.reasons || []),
+      ...(imageResult?.reasons || []),
+    ];
+
+    const hasInvalid = numberResult?.status === "Invalid" || imageResult?.status === "Invalid";
+    return {
+      status: hasInvalid ? "Invalid" : "Valid",
+      reasons,
+    };
+  };
+
   const handleView = (user: User) => {
     console.log("Viewing KYC for user:", user);
     console.log("KYC Image URL:", user.kycImageUrl);
     setSelectedUser(user);
     setRejectionReason(user.kycRejectionReason || "");
+    setImageLoadError(false);
     setModalOpen(true);
   };
 
@@ -229,12 +418,34 @@ const KYC = () => {
             </div>
 
             {totalPages > 1 && (
-              <div className="mt-7">
-                <Pagination
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  onPageChange={setCurrentPage}
-                />
+              <div className="mt-7 flex justify-center">
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                        className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                      <PaginationItem key={page}>
+                        <PaginationLink
+                          onClick={() => setCurrentPage(page)}
+                          isActive={page === currentPage}
+                          className="cursor-pointer"
+                        >
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))}
+                    <PaginationItem>
+                      <PaginationNext
+                        onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                        className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
               </div>
             )}
           </>
@@ -343,12 +554,34 @@ const KYC = () => {
             </div>
 
             {historyTotalPages > 1 && (
-              <div className="mt-7">
-                <Pagination
-                  currentPage={historyPage}
-                  totalPages={historyTotalPages}
-                  onPageChange={setHistoryPage}
-                />
+              <div className="mt-7 flex justify-center">
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        onClick={() => setHistoryPage(Math.max(1, historyPage - 1))}
+                        className={historyPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    {Array.from({ length: historyTotalPages }, (_, i) => i + 1).map((page) => (
+                      <PaginationItem key={page}>
+                        <PaginationLink
+                          onClick={() => setHistoryPage(page)}
+                          isActive={page === historyPage}
+                          className="cursor-pointer"
+                        >
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))}
+                    <PaginationItem>
+                      <PaginationNext
+                        onClick={() => setHistoryPage(Math.min(historyTotalPages, historyPage + 1))}
+                        className={historyPage === historyTotalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
               </div>
             )}
           </>
@@ -441,26 +674,150 @@ const KYC = () => {
                 {/* Image Display */}
                 {selectedUser.kycImageUrl ? (
                   <div className="bg-muted/30 rounded-lg p-4">
-                    <img
-                      src={selectedUser.kycImageUrl}
-                      alt="KYC Document"
-                      className="w-full h-auto rounded-lg shadow-lg border border-border"
-                      onLoad={() => {
-                        console.log("✅ KYC image loaded successfully");
-                        console.log("Image URL:", selectedUser.kycImageUrl);
-                      }}
-                      onError={(e) => {
-                        console.error("❌ Failed to load KYC image");
-                        console.error("URL:", selectedUser.kycImageUrl);
-                        console.error("Error event:", e);
-                      }}
-                    />
+                    {!imageLoadError ? (
+                      <img
+                        src={selectedUser.kycImageUrl}
+                        alt="KYC Document"
+                        className="w-full h-auto rounded-lg shadow-lg border border-border"
+                        onLoad={() => {
+                          console.log("✅ KYC image loaded successfully");
+                          console.log("Image URL:", selectedUser.kycImageUrl);
+                          setImageLoadError(false);
+                        }}
+                        onError={(e) => {
+                          console.error("❌ Failed to load KYC image");
+                          console.error("URL:", selectedUser.kycImageUrl);
+                          console.error("Error event:", e);
+                          setImageLoadError(true);
+                        }}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center bg-destructive/10 rounded-lg p-8 min-h-[300px] border-2 border-dashed border-destructive/50">
+                        <IconX className="h-16 w-16 text-destructive mb-3" />
+                        <p className="text-destructive font-semibold mb-2">Unable to Display Image</p>
+                        <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
+                          The image format may not be supported by your browser (.HEIC files from iPhones cannot be displayed in most browsers).
+                        </p>
+                        {selectedUser.kycImageUrl.toLowerCase().includes('.heic') && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-4 py-2 rounded border border-amber-200 dark:border-amber-800 mb-3">
+                            💡 This is a HEIC file. Users should upload JPEG or PNG formats instead.
+                          </p>
+                        )}
+                        <a
+                          href={selectedUser.kycImageUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-primary hover:underline flex items-center gap-2 mt-2"
+                        >
+                          <IconDownload className="h-4 w-4" />
+                          Try downloading the file directly
+                        </a>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center bg-muted/30 rounded-lg p-12 min-h-[300px] border-2 border-dashed border-border">
                     <IconUser className="h-16 w-16 text-muted-foreground/50 mb-3" />
                     <p className="text-muted-foreground font-medium">No verification document attached</p>
                     <p className="text-xs text-muted-foreground mt-2">User has not uploaded a KYC document</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4 border rounded-lg p-4 bg-muted/20">
+                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-3">
+                  <p className="text-sm text-amber-800 dark:text-amber-200 font-medium">
+                    ⚠️ Machine Learning Checker is not 100% accurate. Manual Verification is still required.
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <h3 className="text-lg font-semibold">ML Identification Check</h3>
+                  <button
+                    onClick={() => void runFullAnalysis(selectedUser)}
+                    disabled={isSelectedMlLoading || (!selectedIdNumber && !selectedUser.kycImageUrl)}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                  >
+                    {isSelectedMlLoading ? "Analyzing..." : "Analyze Identification Card"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Submitted ID Number</p>
+                    <p className="font-semibold break-all">{selectedIdNumber || "Not provided"}</p>
+                    <p className="text-xs text-muted-foreground mt-1">ID Type: {selectedIdType}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">ML Verdict</p>
+                    {isSelectedMlLoading ? (
+                      <span className="inline-flex px-3 py-1 rounded-full text-xs font-semibold bg-muted text-muted-foreground">
+                        Checking...
+                      </span>
+                    ) : (() => {
+                      const hasInvalid = selectedMlResult?.status === "Invalid" || selectedImageResult?.status === "Invalid";
+                      const hasAnyResult = Boolean(selectedMlResult || selectedImageResult);
+
+                      if (!hasAnyResult) {
+                        return (
+                          <span className="inline-flex px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-600">
+                            Not analyzed
+                          </span>
+                        );
+                      }
+
+                      return (
+                        <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${
+                          hasInvalid
+                            ? "bg-red-500/15 text-red-600"
+                            : "bg-green-500/15 text-green-600"
+                        }`}>
+                          {hasInvalid ? "Invalid" : "Valid"}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {!selectedIdNumber && (
+                  <p className="text-xs text-red-600">No submitted ID number found for this user.</p>
+                )}
+
+                {!!selectedImageResult?.message && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Image Analysis Message</p>
+                    <p className="text-sm font-medium">{selectedImageResult.message}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Confidence: {(selectedImageResult.confidence * 100).toFixed(0)}% ({getConfidenceLabel(selectedImageResult.confidence)})
+                    </p>
+                  </div>
+                )}
+
+                {!!selectedImageResult?.checks?.length && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-2">Analysis Breakdown</p>
+                    <ul className="space-y-2">
+                      {selectedImageResult.checks.map((check) => (
+                        <li key={check.name} className="flex items-start gap-2 text-sm">
+                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${getCheckBadgeClass(check.status)}`}>
+                            {check.status.toUpperCase()}
+                          </span>
+                          <span>
+                            <span className="font-medium">{check.name}:</span> {check.detail}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {!!(selectedMlResult?.reasons?.length || selectedImageResult?.reasons?.length) && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Model Notes</p>
+                    <ul className="text-sm space-y-1 list-disc pl-5">
+                      {[...(selectedMlResult?.reasons || []), ...(selectedImageResult?.reasons || [])].map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>

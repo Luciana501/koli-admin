@@ -434,6 +434,24 @@ export const subscribeToUsers = (callback: (users: User[]) => void) => {
   const unsubscribe = onSnapshot(usersRef, (snapshot) => {
     const users: User[] = snapshot.docs.map((doc) => {
       const data = doc.data();
+      const manualData = data.kycManualData || {};
+      const normalizedKycManualData = {
+        ...manualData,
+        idNumber:
+          manualData.idNumber ||
+          manualData.identificationNumber ||
+          data.idNumber ||
+          data.kycIdNumber ||
+          data.validIdNumber ||
+          undefined,
+        identificationType:
+          manualData.identificationType ||
+          manualData.idType ||
+          data.identificationType ||
+          data.idType ||
+          undefined,
+      };
+
       return {
         id: doc.id,
         firstName: data.firstName || "",
@@ -447,7 +465,7 @@ export const subscribeToUsers = (callback: (users: User[]) => void) => {
         kycStatus: data.kycStatus || "NOT_SUBMITTED",
         kycSubmittedAt: data.kycSubmittedAt || undefined,
         kycRejectionReason: data.kycRejectionReason || undefined,
-        kycManualData: data.kycManualData || undefined,
+        kycManualData: normalizedKycManualData,
         kycImageUrl: data.kycImageUrl || undefined,
         name: data.name || undefined,
         role: data.role || undefined,
@@ -1265,6 +1283,23 @@ export const subscribeToKYC = (callback: (users: User[]) => void) => {
     
     const usersPromises = snapshot.docs.map(async (docSnapshot) => {
       const data = docSnapshot.data();
+      const manualData = data.kycManualData || {};
+      const normalizedKycManualData = {
+        ...manualData,
+        idNumber:
+          manualData.idNumber ||
+          manualData.identificationNumber ||
+          data.idNumber ||
+          data.kycIdNumber ||
+          data.validIdNumber ||
+          undefined,
+        identificationType:
+          manualData.identificationType ||
+          manualData.idType ||
+          data.identificationType ||
+          data.idType ||
+          undefined,
+      };
       
       // Get KYC image URL - check multiple possible field names
       let kycImageUrl = data.kycIdImageURL || data.kycImageUrl || data.validIdUrl || data.kycImage || undefined;
@@ -1299,7 +1334,7 @@ export const subscribeToKYC = (callback: (users: User[]) => void) => {
         kycStatus: data.kycStatus || undefined,
         kycSubmittedAt: data.kycSubmittedAt || undefined,
         kycRejectionReason: data.kycRejectionReason || undefined,
-        kycManualData: data.kycManualData || undefined,
+        kycManualData: normalizedKycManualData,
         kycImageUrl: kycImageUrl,
       };
     });

@@ -16,6 +16,8 @@ export interface User {
   kycManualData?: {
     address?: string;
     phoneNumber?: string;
+    idNumber?: string;
+    identificationType?: string;
   };
   kycImageUrl?: string;
   name?: string;

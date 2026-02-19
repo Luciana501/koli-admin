@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { User } from "@/types/admin";
 import { subscribeToUsers, createUser, updateUser, deleteUser, shareUserWithOtherAdmin, shareUserToAdminChat, updateKYCStatus } from "@/services/firestore";
-import { IconSearch, IconEye, IconFilter, IconX, IconEdit, IconTrash, IconPlus, IconShare } from "@tabler/icons-react";
+import { IconSearch, IconEye, IconFilter, IconX, IconEdit, IconTrash, IconPlus, IconShare, IconCopy } from "@tabler/icons-react";
 import {
   Pagination,
   PaginationContent,
@@ -234,6 +234,65 @@ const Users = () => {
     setEditingUser(null);
     setIsFormModalOpen(true);
   };
+
+  const handleCopyAllUsers = async () => {
+    if (sortedUsers.length === 0) {
+      toast({
+        title: "No users to copy",
+        description: "There are no users matching the current filters.",
+      });
+      return;
+    }
+
+    const approvedUsers = sortedUsers.filter((user) => user.kycStatus === "APPROVED");
+    const notSubmittedUsers = sortedUsers.filter((user) => !user.kycStatus || user.kycStatus === "NOT_SUBMITTED");
+    const needsReapplicationUsers = sortedUsers.filter(
+      (user) => user.kycStatus === "REJECTED" || user.kycStatus === "PENDING"
+    );
+
+    const buildSection = (title: string, list: User[]) => {
+      const lines =
+        list.length > 0
+          ? list.map((user, index) => `${index + 1}. ${user.lastName || ""}, ${user.firstName || ""}`)
+          : ["(none)"];
+      return [title, ...lines].join("\n");
+    };
+
+    const textToCopy = [
+      buildSection("KYC Approved", approvedUsers),
+      "",
+      buildSection("Not-Submitted KYC", notSubmittedUsers),
+      "",
+      buildSection("Needs KYC Reapplication", needsReapplicationUsers),
+    ].join("\n");
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(textToCopy);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = textToCopy;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+
+      toast({
+        title: "Users copied",
+        description: `${sortedUsers.length} user${sortedUsers.length > 1 ? "s" : ""} copied to clipboard.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Copy failed",
+        description: "Unable to copy users. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
   
   const handleEditUser = (user: User) => {
     setFormMode("edit");
@@ -357,10 +416,16 @@ const Users = () => {
           <h1 className="text-xl md:text-2xl font-bold">Users</h1>
           <p className="text-sm md:text-base text-muted-foreground mt-1">Manage your users</p>
         </div>
-        <Button onClick={handleCreateUser} className="flex items-center gap-2">
-          <IconPlus className="h-4 w-4" />
-          Create User
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleCopyAllUsers} className="flex items-center gap-2">
+            <IconCopy className="h-4 w-4" />
+            Copy All Users
+          </Button>
+          <Button onClick={handleCreateUser} className="flex items-center gap-2">
+            <IconPlus className="h-4 w-4" />
+            Create User
+          </Button>
+        </div>
       </div>
 
       <div className="bg-card border border-border rounded-lg">
