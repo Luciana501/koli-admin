@@ -158,6 +158,7 @@ export function AppSidebar() {
           { label: "Platform Codes", href: "/platform-codes", icon: IconKey },
           { label: "Donations", href: "/donations", icon: IconHeart, badge: formatBadge(pendingDonationCount) },
           { label: "Reward History", href: "/reward-history", icon: IconTrophy },
+          { label: "News", href: "/news", icon: IconChartLine },
         ]
       : []),
     ...(adminType === "finance"

@@ -21,6 +21,8 @@ const ChatList = React.lazy(() => import("./pages/ChatList"));
 const ManaRewardPage = React.lazy(() => import("./pages/ManaReward"));
 const RewardHistory = React.lazy(() => import("./pages/RewardHistory"));
 const PlatformCodes = React.lazy(() => import("./pages/PlatformCodes"));
+const NewsCreation = React.lazy(() => import("./pages/NewsCreation"));
+const NewsManage = React.lazy(() => import("./pages/NewsManage"));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-64">
@@ -122,6 +124,22 @@ const AppRoutes = () => {
             element={
               <ProtectedRoute>
                 <PlatformCodes />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/news"
+            element={
+              <ProtectedRoute>
+                <NewsCreation />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/news/manage"
+            element={
+              <ProtectedRoute>
+                <NewsManage />
               </ProtectedRoute>
             }
           />
