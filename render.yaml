@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: koli-kyc-api
+    env: docker
+    rootDir: app
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: CORS_ORIGINS
+        value: https://your-vercel-site.vercel.app,http://localhost:5173
