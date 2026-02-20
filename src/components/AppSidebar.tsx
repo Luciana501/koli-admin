@@ -27,6 +27,7 @@ import {
   IconStar,
   IconTrophy,
   IconKey,
+  IconVersions,
 } from "@tabler/icons-react";
 import { subscribeToChatMessages } from "@/services/chat";
 import { auth } from "@/lib/firebase";
@@ -159,6 +160,7 @@ export function AppSidebar() {
           { label: "Donations", href: "/donations", icon: IconHeart, badge: formatBadge(pendingDonationCount) },
           { label: "Reward History", href: "/reward-history", icon: IconTrophy },
           { label: "News", href: "/news", icon: IconChartLine },
+          { label: "App Version", href: "/app-version", icon: IconVersions },
         ]
       : []),
     ...(adminType === "finance"

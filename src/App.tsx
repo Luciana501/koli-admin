@@ -23,6 +23,7 @@ const RewardHistory = React.lazy(() => import("./pages/RewardHistory"));
 const PlatformCodes = React.lazy(() => import("./pages/PlatformCodes"));
 const NewsCreation = React.lazy(() => import("./pages/NewsCreation"));
 const NewsManage = React.lazy(() => import("./pages/NewsManage"));
+const AppVersion = React.lazy(() => import("./pages/AppVersion"));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-64">
@@ -140,6 +141,14 @@ const AppRoutes = () => {
             element={
               <ProtectedRoute>
                 <NewsManage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/app-version"
+            element={
+              <ProtectedRoute>
+                <AppVersion />
               </ProtectedRoute>
             }
           />
