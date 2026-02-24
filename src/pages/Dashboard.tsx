@@ -16,7 +16,18 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import PageLoading from "@/components/PageLoading";
 
 const Dashboard = () => {
   const { adminType } = useAuth();
@@ -48,6 +59,9 @@ const Dashboard = () => {
   const [maintenanceStartOffset, setMaintenanceStartOffset] = useState<number | "">("");
   const [maintenanceOffsetUnit, setMaintenanceOffsetUnit] = useState<"hours" | "minutes">("hours");
   const [maintenanceMessage, setMaintenanceMessage] = useState("");
+  const [showMaintenanceScheduler, setShowMaintenanceScheduler] = useState(false);
+  const [maintenanceWarningOpen, setMaintenanceWarningOpen] = useState(false);
+  const [pendingMaintenanceAction, setPendingMaintenanceAction] = useState<{ type: "enable" | "schedule"; nextEnabled?: boolean } | null>(null);
 
   const formatDateTime = (isoValue: string) => {
     if (!isoValue) return "—";
@@ -343,6 +357,43 @@ const Dashboard = () => {
     }
   };
 
+  const requestToggleMaintenance = (nextEnabled: boolean) => {
+    if (nextEnabled) {
+      setPendingMaintenanceAction({ type: "enable", nextEnabled });
+      setMaintenanceWarningOpen(true);
+      return;
+    }
+
+    void handleToggleMaintenance(nextEnabled);
+  };
+
+  const requestSaveMaintenance = () => {
+    const hasDateSchedule = Boolean(maintenanceStartAt);
+    const numericOffsetForValidation = Number(maintenanceStartOffset);
+    const hasOffsetSchedule = Number.isFinite(numericOffsetForValidation) && numericOffsetForValidation > 0;
+
+    if (hasDateSchedule || hasOffsetSchedule || maintenanceEnabled) {
+      setPendingMaintenanceAction({ type: "schedule" });
+      setMaintenanceWarningOpen(true);
+      return;
+    }
+
+    void handleSaveMaintenance();
+  };
+
+  const confirmMaintenanceAction = () => {
+    if (pendingMaintenanceAction?.type === "enable") {
+      void handleToggleMaintenance(Boolean(pendingMaintenanceAction.nextEnabled));
+    }
+
+    if (pendingMaintenanceAction?.type === "schedule") {
+      void handleSaveMaintenance();
+    }
+
+    setPendingMaintenanceAction(null);
+    setMaintenanceWarningOpen(false);
+  };
+
   const handleCancelMaintenance = async () => {
     setMaintenanceCancelling(true);
     try {
@@ -386,13 +437,7 @@ const Dashboard = () => {
   ];
 
   if (loading) {
-    return (
-      <div>
-        <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">Loading dashboard...</p>
-        </div>
-      </div>
-    );
+    return <PageLoading className="min-h-[16rem]" />;
   }
 
   if (error) {
@@ -419,20 +464,31 @@ const Dashboard = () => {
         </p>
       </div>
 
+      {adminType === "developer" && (
       <div className="bg-card border border-border rounded-lg p-4 md:p-6 mb-6">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>
             <h2 className="text-base md:text-lg font-semibold">Maintenance Scheduler</h2>
             <p className="text-xs md:text-sm text-muted-foreground mt-1">Schedule maintenance for Koli system clients.</p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs md:text-sm text-muted-foreground">Enable</span>
-            <Switch
-              checked={maintenanceEnabled}
-              onCheckedChange={handleToggleMaintenance}
-              disabled={maintenanceSaving || maintenanceCancelling || maintenanceAutoActivating}
-            />
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowMaintenanceScheduler((previousValue) => !previousValue)}
+          >
+            {showMaintenanceScheduler ? "Hide Scheduler" : "Show Scheduler"}
+          </Button>
+        </div>
+
+        {showMaintenanceScheduler && (
+          <>
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-xs md:text-sm text-muted-foreground">Enable</span>
+          <Switch
+            checked={maintenanceEnabled}
+            onCheckedChange={requestToggleMaintenance}
+            disabled={maintenanceSaving || maintenanceCancelling || maintenanceAutoActivating}
+          />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -469,11 +525,42 @@ const Dashboard = () => {
             Data path: systemSettings/maintenanceScheduler • Timezone: Asia/Manila • Set either specific date/time or start offset + unit
           </p>
           <div className="flex items-center gap-2">
-            <Button onClick={handleSaveMaintenance} disabled={maintenanceSaving || maintenanceCancelling || maintenanceAutoActivating}>
+            <Button onClick={requestSaveMaintenance} disabled={maintenanceSaving || maintenanceCancelling || maintenanceAutoActivating}>
               {maintenanceSaving ? "Saving..." : "Save Maintenance"}
             </Button>
           </div>
         </div>
+          </>
+        )}
+
+        <div className="mt-4 text-xs md:text-sm text-muted-foreground">
+          Current status: {maintenanceConfig?.enabled ? "Enabled" : "Inactive"}
+        </div>
+
+        <AlertDialog
+          open={maintenanceWarningOpen}
+          onOpenChange={(open) => {
+            setMaintenanceWarningOpen(open);
+            if (!open) setPendingMaintenanceAction(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {pendingMaintenanceAction?.type === "enable" ? "Enable Maintenance Mode?" : "Save Maintenance Schedule?"}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {pendingMaintenanceAction?.type === "enable"
+                  ? "This action can immediately affect user access. Confirm only if you are ready to enter maintenance mode."
+                  : "This will publish a maintenance schedule that can affect user access once it starts. Do you want to continue?"}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmMaintenanceAction}>Confirm</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {(maintenanceConfig?.enabled || maintenanceConfig?.startAt || maintenanceConfig?.startInHours || maintenanceConfig?.startInMinutes || maintenanceConfig?.message) && (
           <div className="mt-4 border border-border rounded-lg p-3 md:p-4 bg-muted/20 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -495,6 +582,7 @@ const Dashboard = () => {
           </div>
         )}
       </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-3 md:gap-4 mb-6">
         <div className="bg-card border border-border rounded-lg p-4 md:p-6 flex flex-col justify-between">

@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import PageLoading from "@/components/PageLoading";
 
 interface GroupedWithdrawal {
   id: string;
@@ -772,13 +773,7 @@ const Withdrawals = () => {
   const isFinanceAdmin = adminType === "finance";
 
   if (loading) {
-    return (
-      <div className="p-2 sm:p-4 md:p-6 lg:p-8">
-        <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">Loading withdrawals...</p>
-        </div>
-      </div>
-    );
+    return <PageLoading className="min-h-[16rem]" />;
   }
 
   return (

@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import Login from "./pages/Login";
 import AdminLayout from "./components/AdminLayout";
 import NotFound from "./pages/NotFound";
+import PageLoading from "./components/PageLoading";
 
 // Lazy load all page components for faster initial load
 const Dashboard = React.lazy(() => import("./pages/Dashboard"));
@@ -25,12 +26,6 @@ const NewsCreation = React.lazy(() => import("./pages/NewsCreation"));
 const NewsManage = React.lazy(() => import("./pages/NewsManage"));
 const AppVersion = React.lazy(() => import("./pages/AppVersion"));
 
-const PageLoader = () => (
-  <div className="flex items-center justify-center h-64">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-  </div>
-);
-
 const queryClient = new QueryClient();
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -40,7 +35,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   }
   return (
     <AdminLayout>
-      <Suspense fallback={<PageLoader />}>
+      <Suspense fallback={<PageLoading className="min-h-[70vh]" />}>
         {children}
       </Suspense>
     </AdminLayout>

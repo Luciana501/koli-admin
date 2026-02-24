@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+﻿import React, { useState, useEffect, useMemo } from "react";
 import { Donation } from "@/types/admin";
 import { subscribeToDonations, updateDonationStatus } from "@/services/firestore";
 import { IconCheck, IconX, IconEye, IconDownload, IconFilter, IconSearch } from "@tabler/icons-react";
@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import PageLoading from "@/components/PageLoading";
 
 const Donations = () => {
   const [donations, setDonations] = useState<Donation[]>([]);
@@ -54,7 +55,7 @@ const Donations = () => {
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-  const itemsPerPage = 10;
+  const itemsPerPage = 50;
 
   useEffect(() => {
     // Subscribe to real-time donations updates
@@ -66,8 +67,21 @@ const Donations = () => {
     return () => unsubscribe();
   }, []);
 
-  const filteredDonations = useMemo(() => {
-    return donations.filter((donation) => {
+  const pendingDonations = useMemo(
+    () =>
+      [...donations]
+        .filter((donation) => donation.status === "pending")
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [donations]
+  );
+
+  const historySourceDonations = useMemo(
+    () => donations.filter((donation) => donation.status !== "pending"),
+    [donations]
+  );
+
+  const historyDonations = useMemo(() => {
+    return historySourceDonations.filter((donation) => {
       const normalizedSearch = searchTerm.toLowerCase();
       const matchesSearch =
         !searchTerm ||
@@ -112,10 +126,7 @@ const Donations = () => {
 
       return matchesSearch && matchesAmount && matchesPaymentMethod && matchesDate;
     });
-  }, [donations, searchTerm, amountFilter, paymentMethodFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
-
-  const pendingDonations = filteredDonations.filter((d) => d.status === "pending");
-  const historyDonations = filteredDonations.filter((d) => d.status !== "pending");
+  }, [historySourceDonations, searchTerm, amountFilter, paymentMethodFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
   
   const totalPages = Math.ceil(pendingDonations.length / itemsPerPage);
   const historyTotalPages = Math.ceil(historyDonations.length / itemsPerPage);
@@ -141,6 +152,10 @@ const Donations = () => {
     dateToFilter ||
     minAmount ||
     maxAmount;
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [searchTerm, amountFilter, paymentMethodFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
   const clearFilters = () => {
     setSearchTerm("");
@@ -256,7 +271,7 @@ const Donations = () => {
         try {
           const storageRef = ref(storage, donation.receiptPath);
           const freshUrl = await getDownloadURL(storageRef);
-          console.log("✅ Fresh URL fetched:", freshUrl);
+          console.log("âœ… Fresh URL fetched:", freshUrl);
           receiptUrl = freshUrl;
         } catch (error) {
           console.error("Failed to fetch fresh URL, using stored URL:", error);
@@ -288,13 +303,7 @@ const Donations = () => {
   };
 
   if (loading) {
-    return (
-      <div className="p-2 sm:p-4 md:p-6 lg:p-8">
-        <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">Loading donations...</p>
-        </div>
-      </div>
-    );
+    return <PageLoading className="min-h-[16rem]" />;
   }
 
   return (
@@ -307,126 +316,8 @@ const Donations = () => {
         </p>
       </div>
 
-      {/* Search and Filters */}
-      <div className="space-y-3">
-        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-          <div className="relative flex-1 sm:max-w-md">
-            <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-                setHistoryPage(1);
-              }}
-              placeholder="Search by user name, email, or user ID..."
-              className="w-full pl-10 pr-4 py-2 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center gap-2 whitespace-nowrap"
-            >
-              <IconFilter className="h-4 w-4" />
-              Filters
-              {hasActiveFilters && (
-                <div className="w-2 h-2 bg-primary rounded-full" />
-              )}
-            </Button>
-            {hasActiveFilters && (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
-                <IconX className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {showFilters && (
-          <div className="bg-card border border-border rounded-lg p-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Amount Range</label>
-                <Select value={amountFilter} onValueChange={setAmountFilter}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Select range" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Amounts</SelectItem>
-                    <SelectItem value="low">Low (&lt; ₱10K)</SelectItem>
-                    <SelectItem value="medium">Medium (₱10K - ₱50K)</SelectItem>
-                    <SelectItem value="high">High (₱50K+)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Payment Method</label>
-                <Select value={paymentMethodFilter} onValueChange={setPaymentMethodFilter}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Select method" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Methods</SelectItem>
-                    <SelectItem value="gcash">GCash</SelectItem>
-                    <SelectItem value="bank">Bank Transfer</SelectItem>
-                    <SelectItem value="paypal">PayPal</SelectItem>
-                    <SelectItem value="maya">Maya</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Date Range</label>
-                <div className="flex gap-2">
-                  <Input
-                    type="date"
-                    value={dateFromFilter}
-                    onChange={(e) => setDateFromFilter(e.target.value)}
-                    className="h-9 text-xs"
-                  />
-                  <Input
-                    type="date"
-                    value={dateToFilter}
-                    onChange={(e) => setDateToFilter(e.target.value)}
-                    className="h-9 text-xs"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Custom Amount</label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min ₱"
-                    value={minAmount}
-                    onChange={(e) => setMinAmount(e.target.value)}
-                    className="h-9 text-xs"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max ₱"
-                    value={maxAmount}
-                    onChange={(e) => setMaxAmount(e.target.value)}
-                    className="h-9 text-xs"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 text-sm text-muted-foreground">
-              Showing {pendingDonations.length + historyDonations.length} donations
-              {hasActiveFilters && " (filtered)"}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Pending Donations Section */}
+
       <div className="space-y-3 sm:space-y-4 md:space-y-5">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <h2 className="text-base sm:text-lg md:text-xl font-semibold">Pending Approvals</h2>
@@ -441,7 +332,7 @@ const Donations = () => {
           </div>
         ) : (
           <>
-            <div className="md:hidden space-y-3">
+            <div className="md:hidden max-h-[55vh] overflow-y-auto space-y-3 pr-1">
               {paginatedDonations.map((donation) => (
                 <div key={donation.id} className="bg-card border border-border rounded-xl p-3 space-y-2">
                   <div className="flex items-start justify-between gap-3">
@@ -449,7 +340,7 @@ const Donations = () => {
                       <p className="font-semibold text-sm truncate">{donation.userName || "Loading..."}</p>
                       <p className="text-xs text-muted-foreground truncate">{donation.userEmail || donation.userId}</p>
                     </div>
-                    <span className="text-sm font-bold text-primary whitespace-nowrap">₱{donation.donationAmount.toLocaleString()}</span>
+                    <span className="text-sm font-bold text-primary whitespace-nowrap">â‚±{donation.donationAmount.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="px-2 py-1 rounded-full bg-blue-500/10 text-blue-600 text-xs font-medium capitalize whitespace-nowrap">
@@ -503,6 +394,7 @@ const Donations = () => {
             </div>
 
             <div className="hidden md:block bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+              <div className="max-h-[55vh] overflow-y-auto">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[800px]">
                   <thead>
@@ -528,7 +420,7 @@ const Donations = () => {
                       </td>
                       <td className="p-3 md:p-4 lg:p-5">
                         <span className="text-base md:text-lg font-bold text-primary whitespace-nowrap">
-                          ₱{donation.donationAmount.toLocaleString()}
+                          â‚±{donation.donationAmount.toLocaleString()}
                         </span>
                       </td>
                       <td className="p-3 md:p-4 lg:p-5">
@@ -584,6 +476,7 @@ const Donations = () => {
               </table>
             </div>
           </div>
+          </div>
 
           {totalPages > 1 && (
             <div className="mt-7">
@@ -620,6 +513,126 @@ const Donations = () => {
       )}
       </div>
 
+      
+      <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+        <div className="p-4 sm:p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+            <div className="relative flex-1 max-w-full sm:max-w-md">
+              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setHistoryPage(1);
+                }}
+                placeholder="Search by user name, email, or user ID..."
+                className="w-full pl-10 pr-4 py-2 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <div className="flex gap-2 items-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowFilters(!showFilters)}
+                className="flex items-center gap-2"
+              >
+                <IconFilter className="h-4 w-4" />
+                Filters
+                {hasActiveFilters && <div className="w-2 h-2 bg-primary rounded-full" />}
+              </Button>
+              {hasActiveFilters && (
+                <Button variant="ghost" size="sm" onClick={clearFilters}>
+                  <IconX className="h-4 w-4" />
+                </Button>
+              )}
+              <div className="text-sm font-medium text-muted-foreground ml-2">
+                Total Donations: {historyDonations.length}
+              </div>
+            </div>
+          </div>
+
+          {showFilters && (
+            <div className="bg-muted/50 p-4 rounded-lg space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Amount Range</label>
+                  <Select value={amountFilter} onValueChange={setAmountFilter}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Select range" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Amounts</SelectItem>
+                      <SelectItem value="low">Low (&lt; ₱10K)</SelectItem>
+                      <SelectItem value="medium">Medium (₱10K - ₱50K)</SelectItem>
+                      <SelectItem value="high">High (₱50K+)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Payment Method</label>
+                  <Select value={paymentMethodFilter} onValueChange={setPaymentMethodFilter}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Select method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Methods</SelectItem>
+                      <SelectItem value="gcash">GCash</SelectItem>
+                      <SelectItem value="bank">Bank Transfer</SelectItem>
+                      <SelectItem value="paypal">PayPal</SelectItem>
+                      <SelectItem value="maya">Maya</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Date Range</label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="date"
+                      value={dateFromFilter}
+                      onChange={(e) => setDateFromFilter(e.target.value)}
+                      className="h-9 text-xs"
+                    />
+                    <Input
+                      type="date"
+                      value={dateToFilter}
+                      onChange={(e) => setDateToFilter(e.target.value)}
+                      className="h-9 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Custom Amount</label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      placeholder="Min ₱"
+                      value={minAmount}
+                      onChange={(e) => setMinAmount(e.target.value)}
+                      className="h-9 text-xs"
+                    />
+                    <Input
+                      type="number"
+                      placeholder="Max ₱"
+                      value={maxAmount}
+                      onChange={(e) => setMaxAmount(e.target.value)}
+                      className="h-9 text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-sm text-muted-foreground">
+                Showing {historyDonations.length} of {historySourceDonations.length} donations
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* History Section */}
       <div className="space-y-3 sm:space-y-4 md:space-y-5 mt-8 sm:mt-10 md:mt-12">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
@@ -635,7 +648,7 @@ const Donations = () => {
           </div>
         ) : (
           <>
-            <div className="md:hidden space-y-3">
+            <div className="md:hidden max-h-[55vh] overflow-y-auto space-y-3 pr-1">
               {paginatedHistory.map((donation) => (
                 <div key={donation.id} className="bg-card border border-border rounded-xl p-3 space-y-2">
                   <div className="flex items-start justify-between gap-3">
@@ -643,7 +656,7 @@ const Donations = () => {
                       <p className="font-semibold text-sm truncate">{donation.userName || "Loading..."}</p>
                       <p className="text-xs text-muted-foreground truncate">{donation.userEmail || donation.userId}</p>
                     </div>
-                    <span className="text-sm font-semibold whitespace-nowrap">₱{donation.donationAmount.toLocaleString()}</span>
+                    <span className="text-sm font-semibold whitespace-nowrap">â‚±{donation.donationAmount.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="px-2 py-1 rounded-full bg-blue-500/10 text-blue-600 text-xs font-medium capitalize whitespace-nowrap">
@@ -688,6 +701,7 @@ const Donations = () => {
             </div>
 
             <div className="hidden md:block bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+              <div className="max-h-[55vh] overflow-y-auto">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[800px]">
                   <thead>
@@ -711,7 +725,7 @@ const Donations = () => {
                         </td>
                         <td className="p-3 md:p-4 lg:p-5">
                           <span className="text-sm md:text-base font-semibold whitespace-nowrap">
-                            ₱{donation.donationAmount.toLocaleString()}
+                            â‚±{donation.donationAmount.toLocaleString()}
                           </span>
                         </td>
                         <td className="p-3 md:p-4 lg:p-5">
@@ -759,6 +773,7 @@ const Donations = () => {
                   </tbody>
                 </table>
               </div>
+            </div>
             </div>
 
             {historyTotalPages > 1 && (
@@ -835,7 +850,7 @@ const Donations = () => {
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Donation Amount</p>
-                    <p className="font-semibold text-lg text-primary">₱{selectedDonation.donationAmount.toLocaleString()}</p>
+                    <p className="font-semibold text-lg text-primary">â‚±{selectedDonation.donationAmount.toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Payment Method</p>
@@ -908,11 +923,11 @@ const Donations = () => {
                       alt="Payment Receipt"
                       className="w-full h-auto rounded-lg shadow-lg border border-border"
                       onLoad={() => {
-                        console.log("✅ Receipt image loaded successfully");
+                        console.log("âœ… Receipt image loaded successfully");
                         console.log("Image URL:", selectedReceiptUrl);
                       }}
                       onError={async (e) => {
-                        console.error("❌ Failed to load receipt image");
+                        console.error("âŒ Failed to load receipt image");
                         console.error("URL:", selectedReceiptUrl);
                         console.error("Error event:", e);
                         
@@ -925,11 +940,11 @@ const Donations = () => {
                             
                             // Only retry if we got a different URL
                             if (freshUrl !== selectedReceiptUrl) {
-                              console.log("✅ Got fresh URL, retrying...");
+                              console.log("âœ… Got fresh URL, retrying...");
                               setSelectedReceiptUrl(freshUrl);
                               return; // Don't show error toast yet, retry with new URL
                             } else {
-                              console.log("⚠️ Fresh URL is same as failed URL");
+                              console.log("âš ï¸ Fresh URL is same as failed URL");
                             }
                           } catch (retryError) {
                             console.error("Failed to fetch fresh URL:", retryError);
@@ -1012,3 +1027,5 @@ const Donations = () => {
 };
 
 export default Donations;
+
+

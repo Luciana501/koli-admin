@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import PageLoading from "@/components/PageLoading";
 
 const AppVersion = () => {
   const [config, setConfig] = useState<AppVersionConfig | null>(null);
@@ -125,11 +126,7 @@ const AppVersion = () => {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
+    return <PageLoading className="min-h-screen" />;
   }
 
   return (

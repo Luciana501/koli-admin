@@ -42,6 +42,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import PageLoading from "@/components/PageLoading";
 
 const Users = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -78,6 +79,7 @@ const Users = () => {
   const [minDonation, setMinDonation] = useState("");
   const [maxDonation, setMaxDonation] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [sortOrder, setSortOrder] = useState<"latest" | "oldest">("latest");
   
   const itemsPerPage = 50;
 
@@ -183,14 +185,21 @@ const Users = () => {
     return matchesSearch && matchesAsset && matchesDonation && matchesKyc && matchesLeader;
   });
 
-  const sortedUsers = [...filteredUsers].sort((a, b) => {
-    const leaderA = (a.leaderName || a.leaderId || "Unassigned").toLowerCase();
-    const leaderB = (b.leaderName || b.leaderId || "Unassigned").toLowerCase();
-    if (leaderA !== leaderB) return leaderA.localeCompare(leaderB);
+  const getCreatedAtMs = (value?: string) => {
+    if (!value) return 0;
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
 
-    const nameA = `${a.firstName} ${a.lastName}`.trim().toLowerCase();
-    const nameB = `${b.firstName} ${b.lastName}`.trim().toLowerCase();
-    return nameA.localeCompare(nameB);
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    const createdAtA = getCreatedAtMs(a.createdAt);
+    const createdAtB = getCreatedAtMs(b.createdAt);
+
+    if (sortOrder === "latest") {
+      return createdAtB - createdAtA;
+    }
+
+    return createdAtA - createdAtB;
   });
 
   const totalPages = Math.ceil(sortedUsers.length / itemsPerPage);
@@ -209,7 +218,20 @@ const Users = () => {
     return acc;
   }, {});
 
-  const groupedEntries = Object.entries(groupedPaginatedUsers);
+  const groupedEntries = Object.entries(groupedPaginatedUsers).sort(([leaderA, usersA], [leaderB, usersB]) => {
+    const groupTimeA = sortOrder === "latest"
+      ? Math.max(...usersA.map((user) => getCreatedAtMs(user.createdAt)))
+      : Math.min(...usersA.map((user) => getCreatedAtMs(user.createdAt)));
+    const groupTimeB = sortOrder === "latest"
+      ? Math.max(...usersB.map((user) => getCreatedAtMs(user.createdAt)))
+      : Math.min(...usersB.map((user) => getCreatedAtMs(user.createdAt)));
+
+    if (groupTimeA !== groupTimeB) {
+      return sortOrder === "latest" ? groupTimeB - groupTimeA : groupTimeA - groupTimeB;
+    }
+
+    return leaderA.localeCompare(leaderB);
+  });
 
   const handleViewUser = (user: User) => {
     setViewingUser(user);
@@ -227,6 +249,7 @@ const Users = () => {
     setMaxDonation("");
     setSearchTerm("");
     setCurrentPage(1);
+    setSortOrder("latest");
   };
   
   const handleCreateUser = () => {
@@ -472,7 +495,26 @@ const Users = () => {
           {/* Advanced Filters */}
           {showFilters && (
             <div className="bg-muted/50 p-4 rounded-lg space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
+                {/* Sort Order Filter */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Sort By</label>
+                  <Select
+                    value={sortOrder}
+                    onValueChange={(value: "latest" | "oldest") => {
+                      setSortOrder(value);
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Sort order" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="latest">Latest First</SelectItem>
+                      <SelectItem value="oldest">Oldest First</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 {/* Asset Filters */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Total Asset</label>
@@ -590,9 +632,7 @@ const Users = () => {
 
         <div className="overflow-x-auto max-h-[65vh] overflow-y-auto">
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <p className="text-muted-foreground">Loading users...</p>
-            </div>
+            <PageLoading className="min-h-[16rem]" />
           ) : paginatedUsers.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <p className="text-muted-foreground">No users found</p>

@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import PageLoading from "@/components/PageLoading";
 import {
   createPlatformCode,
   deletePlatformCode,
@@ -325,7 +326,7 @@ const PlatformCodes = () => {
 
         <div className="overflow-x-auto">
           {loading ? (
-            <div className="p-8 text-center text-muted-foreground">Loading platform codes...</div>
+            <PageLoading className="min-h-[16rem]" />
           ) : filteredCodes.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">
               {leaderSearch.trim() ? "No matching leaders found." : "No platform codes yet."}
