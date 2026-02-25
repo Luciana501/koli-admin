@@ -484,6 +484,9 @@ export const subscribeToUsers = (callback: (users: User[]) => void) => {
         name: data.name || undefined,
         role: data.role || undefined,
         status: data.status || undefined,
+        suspendedAt: data.suspendedAt ? toIsoString(data.suspendedAt) : undefined,
+        suspendedBy: data.suspendedBy || undefined,
+        suspensionReason: data.suspensionReason || undefined,
         uid: data.uid || undefined,
         leaderId: data.leaderId || undefined,
         leaderName: data.leaderName || undefined,
@@ -731,6 +734,9 @@ export const fetchUsers = async (): Promise<User[]> => {
         kycRejectionReason: data.kycRejectionReason || undefined,
         role: data.role || undefined,
         status: data.status || undefined,
+        suspendedAt: data.suspendedAt ? toIsoString(data.suspendedAt) : undefined,
+        suspendedBy: data.suspendedBy || undefined,
+        suspensionReason: data.suspensionReason || undefined,
         uid: data.uid || undefined,
         leaderId: data.leaderId || undefined,
         leaderName: data.leaderName || undefined,
@@ -766,6 +772,9 @@ export const fetchUserById = async (userId: string): Promise<User | null> => {
         kycRejectionReason: data.kycRejectionReason || undefined,
         role: data.role || undefined,
         status: data.status || undefined,
+        suspendedAt: data.suspendedAt ? toIsoString(data.suspendedAt) : undefined,
+        suspendedBy: data.suspendedBy || undefined,
+        suspensionReason: data.suspensionReason || undefined,
         uid: data.uid || undefined,
         leaderId: data.leaderId || undefined,
         leaderName: data.leaderName || undefined,
@@ -1882,6 +1891,42 @@ export const updateUser = async (
     await updateDoc(userRef, updatePayload);
   } catch (error) {
     console.error("Error updating user:", error);
+    throw error;
+  }
+};
+
+export const suspendUserAccount = async (userId: string, reason?: string): Promise<void> => {
+  try {
+    const userRef = doc(db, "members", userId);
+    const nowIso = new Date().toISOString();
+
+    await updateDoc(userRef, {
+      status: "suspended",
+      suspendedAt: nowIso,
+      suspendedBy: auth.currentUser?.uid || "admin",
+      suspensionReason: (reason || "").trim() || null,
+      updatedAt: nowIso,
+    });
+  } catch (error) {
+    console.error("Error suspending user account:", error);
+    throw error;
+  }
+};
+
+export const unsuspendUserAccount = async (userId: string): Promise<void> => {
+  try {
+    const userRef = doc(db, "members", userId);
+    const nowIso = new Date().toISOString();
+
+    await updateDoc(userRef, {
+      status: "active",
+      suspendedAt: null,
+      suspendedBy: null,
+      suspensionReason: null,
+      updatedAt: nowIso,
+    });
+  } catch (error) {
+    console.error("Error unsuspending user account:", error);
     throw error;
   }
 };

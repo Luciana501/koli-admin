@@ -340,7 +340,7 @@ const Donations = () => {
                       <p className="font-semibold text-sm truncate">{donation.userName || "Loading..."}</p>
                       <p className="text-xs text-muted-foreground truncate">{donation.userEmail || donation.userId}</p>
                     </div>
-                    <span className="text-sm font-bold text-primary whitespace-nowrap">â‚±{donation.donationAmount.toLocaleString()}</span>
+                    <span className="text-sm font-bold text-primary whitespace-nowrap">₱{donation.donationAmount.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="px-2 py-1 rounded-full bg-blue-500/10 text-blue-600 text-xs font-medium capitalize whitespace-nowrap">
@@ -420,7 +420,7 @@ const Donations = () => {
                       </td>
                       <td className="p-3 md:p-4 lg:p-5">
                         <span className="text-base md:text-lg font-bold text-primary whitespace-nowrap">
-                          â‚±{donation.donationAmount.toLocaleString()}
+                          ₱{donation.donationAmount.toLocaleString()}
                         </span>
                       </td>
                       <td className="p-3 md:p-4 lg:p-5">
@@ -656,7 +656,7 @@ const Donations = () => {
                       <p className="font-semibold text-sm truncate">{donation.userName || "Loading..."}</p>
                       <p className="text-xs text-muted-foreground truncate">{donation.userEmail || donation.userId}</p>
                     </div>
-                    <span className="text-sm font-semibold whitespace-nowrap">â‚±{donation.donationAmount.toLocaleString()}</span>
+                    <span className="text-sm font-semibold whitespace-nowrap">₱{donation.donationAmount.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="px-2 py-1 rounded-full bg-blue-500/10 text-blue-600 text-xs font-medium capitalize whitespace-nowrap">
@@ -725,7 +725,7 @@ const Donations = () => {
                         </td>
                         <td className="p-3 md:p-4 lg:p-5">
                           <span className="text-sm md:text-base font-semibold whitespace-nowrap">
-                            â‚±{donation.donationAmount.toLocaleString()}
+                            ₱{donation.donationAmount.toLocaleString()}
                           </span>
                         </td>
                         <td className="p-3 md:p-4 lg:p-5">
@@ -850,7 +850,7 @@ const Donations = () => {
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Donation Amount</p>
-                    <p className="font-semibold text-lg text-primary">â‚±{selectedDonation.donationAmount.toLocaleString()}</p>
+                    <p className="font-semibold text-lg text-primary">₱{selectedDonation.donationAmount.toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Payment Method</p>

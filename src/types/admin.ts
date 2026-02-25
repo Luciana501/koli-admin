@@ -23,6 +23,9 @@ export interface User {
   name?: string;
   role?: string;
   status?: string;
+  suspendedAt?: string;
+  suspendedBy?: string;
+  suspensionReason?: string;
   uid?: string;
   leaderId?: string;
   leaderName?: string;
