@@ -3,6 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Pagination,
   PaginationContent,
   PaginationItem,
@@ -47,6 +54,7 @@ const PlatformCodes = () => {
   const [leaderName, setLeaderName] = useState("");
   const [maxUses, setMaxUses] = useState("");
   const [leaderSearch, setLeaderSearch] = useState("");
+  const [filterType, setFilterType] = useState<"all" | "most_used" | "active" | "inactive">("all");
   const [leaderModalOpen, setLeaderModalOpen] = useState(false);
   const [selectedCode, setSelectedCode] = useState<PlatformCode | null>(null);
   const [modalLeaderName, setModalLeaderName] = useState("");
@@ -88,15 +96,25 @@ const PlatformCodes = () => {
 
   const filteredCodes = useMemo(() => {
     const searchValue = leaderSearch.trim().toLowerCase();
-    if (!searchValue) {
-      return codes;
+    const searchedCodes = codes.filter((platformCode) => {
+      const name = platformCode.leaderName?.toLowerCase() || "";
+      return !searchValue || name.includes(searchValue);
+    });
+
+    if (filterType === "active") {
+      return searchedCodes.filter((platformCode) => platformCode.isActive);
+    }
+    if (filterType === "inactive") {
+      return searchedCodes.filter((platformCode) => !platformCode.isActive);
+    }
+    if (filterType === "most_used") {
+      return [...searchedCodes]
+        .filter((platformCode) => platformCode.usageCount > 0)
+        .sort((a, b) => b.usageCount - a.usageCount);
     }
 
-    return codes.filter((platformCode) => {
-      const name = platformCode.leaderName?.toLowerCase() || "";
-      return name.includes(searchValue);
-    });
-  }, [codes, leaderSearch]);
+    return searchedCodes;
+  }, [codes, leaderSearch, filterType]);
 
   const totalPages = Math.max(1, Math.ceil(filteredCodes.length / itemsPerPage));
 
@@ -107,7 +125,7 @@ const PlatformCodes = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [leaderSearch]);
+  }, [leaderSearch, filterType]);
 
   useEffect(() => {
     setCurrentPage((previousPage) => Math.min(previousPage, totalPages));
@@ -315,12 +333,30 @@ const PlatformCodes = () => {
               Total: {codes.length} • Active: {activeCount}
             </p>
           </div>
-          <div className="w-full max-w-xs">
+          <div className="w-full md:w-auto flex flex-col sm:flex-row gap-2 md:justify-end">
+            <div className="w-full sm:w-[220px]">
+              <Select
+                value={filterType}
+                onValueChange={(value: "all" | "most_used" | "active" | "inactive") => setFilterType(value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Filter" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Filter</SelectItem>
+                  <SelectItem value="most_used">Most Used Codes</SelectItem>
+                  <SelectItem value="active">Active Codes</SelectItem>
+                  <SelectItem value="inactive">Inactive Codes</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-full sm:w-[260px]">
             <Input
               placeholder="Search by leader name"
               value={leaderSearch}
               onChange={(event) => setLeaderSearch(event.target.value)}
             />
+            </div>
           </div>
         </div>
 
@@ -329,7 +365,9 @@ const PlatformCodes = () => {
             <PageLoading className="min-h-[16rem]" />
           ) : filteredCodes.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">
-              {leaderSearch.trim() ? "No matching leaders found." : "No platform codes yet."}
+              {leaderSearch.trim() || filterType !== "all"
+                ? "No matching platform codes found."
+                : "No platform codes yet."}
             </div>
           ) : (
             <table className="w-full min-w-[900px]">
