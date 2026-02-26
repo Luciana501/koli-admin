@@ -219,6 +219,14 @@ const Users = () => {
   }, {});
 
   const groupedEntries = Object.entries(groupedPaginatedUsers);
+  const rowNumberById = new Map<string, number>();
+  let currentRowNumber = startIndex;
+  groupedEntries.forEach(([, leaderUsers]) => {
+    leaderUsers.forEach((user) => {
+      currentRowNumber += 1;
+      rowNumberById.set(user.id, currentRowNumber);
+    });
+  });
 
   const handleViewUser = (user: User) => {
     setViewingUser(user);
@@ -637,12 +645,12 @@ const Users = () => {
                   <div className="px-3 py-2 text-xs font-semibold bg-muted/50 border-b border-border">
                     Leader: {leader} • {leaderUsers.length} user{leaderUsers.length > 1 ? "s" : ""}
                   </div>
-                  {leaderUsers.map((user, index) => (
+                  {leaderUsers.map((user) => (
                 <div key={user.id} className="p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-sm truncate">
-                        {startIndex + paginatedUsers.findIndex((current) => current.id === user.id) + 1}. {user.firstName} {user.lastName}
+                        {rowNumberById.get(user.id) ?? startIndex + 1}. {user.firstName} {user.lastName}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                     </div>
@@ -749,12 +757,12 @@ const Users = () => {
                     {leader} ({leaderUsers.length})
                   </td>
                 </tr>
-              {leaderUsers.map((user, index) => (
+              {leaderUsers.map((user) => (
                 <tr
                   key={user.id}
                   className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
                 >
-                  <td className="px-4 py-3 text-sm">{startIndex + paginatedUsers.findIndex((current) => current.id === user.id) + 1}</td>
+                  <td className="px-4 py-3 text-sm">{rowNumberById.get(user.id) ?? startIndex + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium">
                     {user.firstName}
                   </td>
