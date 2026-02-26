@@ -1196,6 +1196,15 @@ export const subscribeToDonations = (callback: (donations: Donation[]) => void) 
         userEmail,
         userPhone,
         donationAmount: data.donationAmount || 0,
+        verifiedAmount:
+          typeof data.verifiedAmount === "number" ? data.verifiedAmount : null,
+        discrepancyAmount:
+          typeof data.discrepancyAmount === "number" ? data.discrepancyAmount : null,
+        hasDiscrepancy: Boolean(data.hasDiscrepancy),
+        reviewOutcome: (data.reviewOutcome as Donation["reviewOutcome"]) || undefined,
+        reviewNote: data.reviewNote || "",
+        reviewedAt: data.reviewedAt || null,
+        reviewedBy: data.reviewedBy || null,
         paymentMethod: data.paymentMethod || "",
         receiptPath: data.receiptPath || "",
         receiptURL,
@@ -1230,7 +1239,11 @@ export const subscribeToDonations = (callback: (donations: Donation[]) => void) 
 export const updateDonationStatus = async (
   donationId: string,
   status: "approved" | "rejected",
-  rejectionReason?: string
+  options?: {
+    rejectionReason?: string;
+    verifiedAmount?: number;
+    reviewNote?: string;
+  }
 ): Promise<void> => {
   try {
     const donationRef = doc(db, "donationContracts", donationId);
@@ -1248,19 +1261,42 @@ export const updateDonationStatus = async (
     };
 
     if (status === "rejected") {
-      const trimmedReason = rejectionReason?.trim() || "";
+      const trimmedReason = options?.rejectionReason?.trim() || "";
       if (!trimmedReason) {
         throw new Error("Rejection reason is required");
       }
       updateData.rejectionReason = trimmedReason;
+      updateData.verifiedAmount = null;
+      updateData.discrepancyAmount = null;
+      updateData.hasDiscrepancy = false;
+      updateData.reviewOutcome = "rejected";
+      updateData.reviewNote = trimmedReason;
+      updateData.reviewedAt = new Date().toISOString();
+      updateData.reviewedBy = auth.currentUser?.uid || "";
     }
 
     // If approved, set approval metadata
     if (status === "approved") {
       const now = new Date();
+      const declaredAmount = Number(donationData.donationAmount || 0);
+      const requestedVerified = Number(options?.verifiedAmount ?? declaredAmount);
+      const safeVerifiedAmount =
+        Number.isFinite(requestedVerified) && requestedVerified >= 0
+          ? requestedVerified
+          : declaredAmount;
+      const discrepancyAmount = declaredAmount - safeVerifiedAmount;
+
       updateData.approvedAt = now.toISOString();
       updateData.donationStartDate = now.toISOString();
       updateData.rejectionReason = "";
+      updateData.verifiedAmount = safeVerifiedAmount;
+      updateData.discrepancyAmount = discrepancyAmount;
+      updateData.hasDiscrepancy = discrepancyAmount !== 0;
+      updateData.reviewOutcome =
+        discrepancyAmount === 0 ? "approved_exact" : "approved_adjusted";
+      updateData.reviewNote = options?.reviewNote?.trim() || "";
+      updateData.reviewedAt = now.toISOString();
+      updateData.reviewedBy = auth.currentUser?.uid || "";
       
       // Calculate contract end date (30 days from now)
       const endDate = new Date(now);
@@ -1271,17 +1307,27 @@ export const updateDonationStatus = async (
     // Update donation status
     await updateDoc(donationRef, updateData);
     
-    // If approved, update user's donationAmount
-    if (status === "approved" && donationData.userId && donationData.donationAmount) {
+    // If approved, update user's donationAmount using verified amount if present
+    if (status === "approved" && donationData.userId) {
+      const declaredAmount = Number(donationData.donationAmount || 0);
+      const requestedVerified = Number(options?.verifiedAmount ?? declaredAmount);
+      const safeVerifiedAmount =
+        Number.isFinite(requestedVerified) && requestedVerified >= 0
+          ? requestedVerified
+          : declaredAmount;
+      if (safeVerifiedAmount <= 0) {
+        return;
+      }
+
       const userRef = doc(db, "members", donationData.userId);
       const userDoc = await getDoc(userRef);
       
       if (userDoc.exists()) {
         const userData = userDoc.data();
         const currentDonationAmount = userData.donationAmount || 0;
-        const newDonationAmount = currentDonationAmount + donationData.donationAmount;
+        const newDonationAmount = currentDonationAmount + safeVerifiedAmount;
         
-        console.log(`Updating user ${donationData.userId} donation: ${currentDonationAmount} + ${donationData.donationAmount} = ${newDonationAmount}`);
+        console.log(`Updating user ${donationData.userId} donation: ${currentDonationAmount} + ${safeVerifiedAmount} = ${newDonationAmount}`);
         
         await updateDoc(userRef, {
           donationAmount: newDonationAmount,

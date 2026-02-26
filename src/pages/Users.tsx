@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { User } from "@/types/admin";
-import { subscribeToUsers, createUser, updateUser, deleteUser, shareUserWithOtherAdmin, shareUserToAdminChat, updateKYCStatus, suspendUserAccount, unsuspendUserAccount } from "@/services/firestore";
-import { IconSearch, IconEye, IconFilter, IconX, IconEdit, IconTrash, IconPlus, IconShare, IconCopy, IconDotsVertical } from "@tabler/icons-react";
+import { subscribeToUsers, createUser, updateUser, deleteUser, shareUserWithOtherAdmin, shareUserToAdminChat, updateKYCStatus } from "@/services/firestore";
+import { IconSearch, IconEye, IconFilter, IconX, IconEdit, IconTrash, IconPlus, IconShare, IconCopy } from "@tabler/icons-react";
 import {
   Pagination,
   PaginationContent,
@@ -42,13 +42,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import PageLoading from "@/components/PageLoading";
 
 const Users = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -70,10 +63,6 @@ const Users = () => {
   const [sharingUser, setSharingUser] = useState<User | null>(null);
   const [shareNote, setShareNote] = useState("");
   const [isSharing, setIsSharing] = useState(false);
-  const [suspendingUserId, setSuspendingUserId] = useState<string | null>(null);
-  const [isSuspendDialogOpen, setIsSuspendDialogOpen] = useState(false);
-  const [suspensionTargetUser, setSuspensionTargetUser] = useState<User | null>(null);
-  const [suspensionReason, setSuspensionReason] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   
   const { toast } = useToast();
@@ -163,14 +152,17 @@ const Users = () => {
     let matchesDonation = true;
     if (donationFilter && donationFilter !== "all") {
       switch (donationFilter) {
+        case "none":
+          matchesDonation = user.donationAmount === 0;
+          break;
         case "low":
-          matchesDonation = user.donationAmount < 10000;
+          matchesDonation = user.donationAmount >= 1 && user.donationAmount <= 10000;
           break;
         case "medium":
-          matchesDonation = user.donationAmount >= 10000 && user.donationAmount < 50000;
+          matchesDonation = user.donationAmount >= 10001 && user.donationAmount <= 50000;
           break;
         case "high":
-          matchesDonation = user.donationAmount >= 50000;
+          matchesDonation = user.donationAmount > 50000;
           break;
       }
     }
@@ -204,11 +196,9 @@ const Users = () => {
   const sortedUsers = [...filteredUsers].sort((a, b) => {
     const createdAtA = getCreatedAtMs(a.createdAt);
     const createdAtB = getCreatedAtMs(b.createdAt);
-
     if (sortOrder === "latest") {
       return createdAtB - createdAtA;
     }
-
     return createdAtA - createdAtB;
   });
 
@@ -228,25 +218,7 @@ const Users = () => {
     return acc;
   }, {});
 
-  const groupedEntries = Object.entries(groupedPaginatedUsers).sort(([leaderA, usersA], [leaderB, usersB]) => {
-    const groupTimeA = sortOrder === "latest"
-      ? Math.max(...usersA.map((user) => getCreatedAtMs(user.createdAt)))
-      : Math.min(...usersA.map((user) => getCreatedAtMs(user.createdAt)));
-    const groupTimeB = sortOrder === "latest"
-      ? Math.max(...usersB.map((user) => getCreatedAtMs(user.createdAt)))
-      : Math.min(...usersB.map((user) => getCreatedAtMs(user.createdAt)));
-
-    if (groupTimeA !== groupTimeB) {
-      return sortOrder === "latest" ? groupTimeB - groupTimeA : groupTimeA - groupTimeB;
-    }
-
-    return leaderA.localeCompare(leaderB);
-  });
-
-  const displayedPaginatedUsers = groupedEntries.flatMap(([, leaderUsers]) => leaderUsers);
-  const rowNumberByUserId = new Map(
-    displayedPaginatedUsers.map((user, index) => [user.id, startIndex + index + 1])
-  );
+  const groupedEntries = Object.entries(groupedPaginatedUsers);
 
   const handleViewUser = (user: User) => {
     setViewingUser(user);
@@ -442,62 +414,6 @@ const Users = () => {
       });
     }
   };
-
-  const isUserSuspended = (user: User) => (user.status || "").toLowerCase() === "suspended";
-
-  const handleOpenSuspendDialog = (user: User) => {
-    setSuspensionTargetUser(user);
-    setSuspensionReason(user.suspensionReason || "");
-    setIsSuspendDialogOpen(true);
-  };
-
-  const handleConfirmSuspend = async () => {
-    if (!suspensionTargetUser) return;
-
-    setSuspendingUserId(suspensionTargetUser.id);
-    try {
-      await suspendUserAccount(suspensionTargetUser.id, suspensionReason);
-      toast({
-        title: "User suspended",
-        description: `${suspensionTargetUser.firstName} ${suspensionTargetUser.lastName} has been suspended.`,
-      });
-      setIsSuspendDialogOpen(false);
-      setSuspensionTargetUser(null);
-      setSuspensionReason("");
-    } catch (error) {
-      console.error("Error suspending user:", error);
-      toast({
-        title: "Error",
-        description: "Failed to suspend user",
-        variant: "destructive",
-      });
-    } finally {
-      setSuspendingUserId(null);
-    }
-  };
-
-  const handleUnsuspendUser = async (user: User) => {
-    const confirmed = window.confirm(`Unsuspend ${user.firstName} ${user.lastName}?`);
-    if (!confirmed) return;
-
-    setSuspendingUserId(user.id);
-    try {
-      await unsuspendUserAccount(user.id);
-      toast({
-        title: "User unsuspended",
-        description: `${user.firstName} ${user.lastName} has been reactivated.`,
-      });
-    } catch (error) {
-      console.error("Error unsuspending user:", error);
-      toast({
-        title: "Error",
-        description: "Failed to unsuspend user",
-        variant: "destructive",
-      });
-    } finally {
-      setSuspendingUserId(null);
-    }
-  };
   
   // Get the latest user data from the users array when modal is open
   const modalUser = viewingUser 
@@ -586,6 +502,7 @@ const Users = () => {
                     </SelectContent>
                   </Select>
                 </div>
+
                 {/* Asset Filters */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Total Asset</label>
@@ -611,9 +528,10 @@ const Users = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Donations</SelectItem>
-                      <SelectItem value="low">Low (&lt; ₱10K)</SelectItem>
-                      <SelectItem value="medium">Medium (₱10K - ₱50K)</SelectItem>
-                      <SelectItem value="high">High (₱50K+)</SelectItem>
+                      <SelectItem value="none">No Donations</SelectItem>
+                      <SelectItem value="low">Low (1-10K)</SelectItem>
+                      <SelectItem value="medium">Medium (10,001-50,000)</SelectItem>
+                      <SelectItem value="high">High (50,000+)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -703,7 +621,9 @@ const Users = () => {
 
         <div className="overflow-x-auto max-h-[65vh] overflow-y-auto">
           {loading ? (
-            <PageLoading className="min-h-[16rem]" />
+            <div className="flex items-center justify-center py-12">
+              <p className="text-muted-foreground">Loading users...</p>
+            </div>
           ) : paginatedUsers.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <p className="text-muted-foreground">No users found</p>
@@ -722,7 +642,7 @@ const Users = () => {
                   <div className="flex items-center justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-sm truncate">
-                        {rowNumberByUserId.get(user.id) || startIndex + index + 1}. {user.firstName} {user.lastName}
+                        {startIndex + paginatedUsers.findIndex((current) => current.id === user.id) + 1}. {user.firstName} {user.lastName}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                     </div>
@@ -755,38 +675,12 @@ const Users = () => {
                       >
                         <IconShare className="h-4 w-4" />
                       </button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            className="inline-flex items-center p-1.5 rounded-md bg-muted hover:bg-muted/80 text-muted-foreground transition-colors"
-                            aria-label="More actions"
-                            disabled={suspendingUserId === user.id}
-                          >
-                            <IconDotsVertical className="h-4 w-4" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => isUserSuspended(user) ? handleUnsuspendUser(user) : handleOpenSuspendDialog(user)}
-                            className={isUserSuspended(user) ? "text-emerald-600" : "text-red-600"}
-                          >
-                            {isUserSuspended(user) ? "Unsuspend User" : "Suspend User"}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                     <div className="col-span-2 truncate">
                       <span className="text-muted-foreground">Leader: </span>
                       <span>{user.leaderName || user.leaderId || "Unassigned"}</span>
-                    </div>
-                    <div className="col-span-2 truncate">
-                      <span className="text-muted-foreground">Status: </span>
-                      <span className={isUserSuspended(user) ? "text-amber-600 font-medium" : ""}>
-                        {isUserSuspended(user) ? "Suspended" : "Active"}
-                      </span>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Phone: </span>
@@ -860,7 +754,7 @@ const Users = () => {
                   key={user.id}
                   className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
                 >
-                  <td className="px-4 py-3 text-sm">{rowNumberByUserId.get(user.id) || startIndex + index + 1}</td>
+                  <td className="px-4 py-3 text-sm">{startIndex + paginatedUsers.findIndex((current) => current.id === user.id) + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium">
                     {user.firstName}
                   </td>
@@ -910,27 +804,6 @@ const Users = () => {
                       >
                         <IconShare className="h-4 w-4" />
                       </button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-muted hover:bg-muted/80 text-muted-foreground transition-colors text-sm font-medium"
-                            aria-label="More actions"
-                            title="More actions"
-                            disabled={suspendingUserId === user.id}
-                          >
-                            <IconDotsVertical className="h-4 w-4" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() => isUserSuspended(user) ? handleUnsuspendUser(user) : handleOpenSuspendDialog(user)}
-                            className={isUserSuspended(user) ? "text-emerald-600" : "text-red-600"}
-                          >
-                            {isUserSuspended(user) ? "Unsuspend User" : "Suspend User"}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
                     </div>
                   </td>
                 </tr>
@@ -1046,62 +919,9 @@ const Users = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <Dialog
-        open={isSuspendDialogOpen}
-        onOpenChange={(open) => {
-          setIsSuspendDialogOpen(open);
-          if (!open) {
-            setSuspensionTargetUser(null);
-            setSuspensionReason("");
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Suspend User</DialogTitle>
-            <DialogDescription>
-              {suspensionTargetUser
-                ? `Suspend ${suspensionTargetUser.firstName} ${suspensionTargetUser.lastName}.`
-                : "Suspend this user account."}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Suspension Reason (optional)</label>
-            <Input
-              value={suspensionReason}
-              onChange={(e) => setSuspensionReason(e.target.value)}
-              placeholder="Add reason for account suspension..."
-            />
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsSuspendDialogOpen(false);
-                setSuspensionTargetUser(null);
-                setSuspensionReason("");
-              }}
-              disabled={Boolean(suspensionTargetUser && suspendingUserId === suspensionTargetUser.id)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleConfirmSuspend}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={Boolean(suspensionTargetUser && suspendingUserId === suspensionTargetUser.id)}
-            >
-              {Boolean(suspensionTargetUser && suspendingUserId === suspensionTargetUser.id)
-                ? "Suspending..."
-                : "Confirm Suspend"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
 
 export default Users;
+

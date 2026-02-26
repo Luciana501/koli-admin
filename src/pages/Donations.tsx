@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useMemo } from "react";
 import { Donation } from "@/types/admin";
 import { subscribeToDonations, updateDonationStatus } from "@/services/firestore";
-import { IconCheck, IconX, IconEye, IconDownload, IconFilter, IconSearch } from "@tabler/icons-react";
+import { IconX, IconEye, IconDownload, IconFilter, IconSearch } from "@tabler/icons-react";
 import {
   Pagination,
   PaginationContent,
@@ -16,6 +16,7 @@ import { storage } from "@/lib/firebase";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -40,7 +41,13 @@ const Donations = () => {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [selectedReceiptUrl, setSelectedReceiptUrl] = useState<string>("");
+  const [zoomModalOpen, setZoomModalOpen] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
   const [selectedDonation, setSelectedDonation] = useState<Donation | null>(null);
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [approvingDonation, setApprovingDonation] = useState<Donation | null>(null);
+  const [verifiedAmountInput, setVerifiedAmountInput] = useState("");
+  const [approvalReviewNote, setApprovalReviewNote] = useState("");
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectingDonation, setRejectingDonation] = useState<Donation | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -90,22 +97,26 @@ const Donations = () => {
         donation.userId.toLowerCase().includes(normalizedSearch);
 
       let matchesAmount = true;
+      const effectiveAmount = donation.verifiedAmount ?? donation.donationAmount;
       if (amountFilter && amountFilter !== "all") {
         switch (amountFilter) {
+          case "discrepancy":
+            matchesAmount = Boolean(donation.hasDiscrepancy);
+            break;
           case "low":
-            matchesAmount = donation.donationAmount < 10000;
+            matchesAmount = effectiveAmount < 10000;
             break;
           case "medium":
-            matchesAmount = donation.donationAmount >= 10000 && donation.donationAmount < 50000;
+            matchesAmount = effectiveAmount >= 10000 && effectiveAmount < 50000;
             break;
           case "high":
-            matchesAmount = donation.donationAmount >= 50000;
+            matchesAmount = effectiveAmount >= 50000;
             break;
         }
       }
 
-      if (minAmount && donation.donationAmount < parseFloat(minAmount)) matchesAmount = false;
-      if (maxAmount && donation.donationAmount > parseFloat(maxAmount)) matchesAmount = false;
+      if (minAmount && effectiveAmount < parseFloat(minAmount)) matchesAmount = false;
+      if (maxAmount && effectiveAmount > parseFloat(maxAmount)) matchesAmount = false;
 
       const matchesPaymentMethod =
         !paymentMethodFilter ||
@@ -169,7 +180,7 @@ const Donations = () => {
     setHistoryPage(1);
   };
 
-  const handleApprove = async (id: string) => {
+  const openApproveDialog = (donation: Donation) => {
     if (!isFinanceAdmin) {
       toast({
         title: "View Only",
@@ -178,13 +189,74 @@ const Donations = () => {
       });
       return;
     }
-    setProcessingId(id);
+
+    setApprovingDonation(donation);
+    setVerifiedAmountInput(String(donation.donationAmount || 0));
+    setApprovalReviewNote("");
+    setApproveDialogOpen(true);
+  };
+
+  const handleApprove = async () => {
+    if (!isFinanceAdmin) {
+      toast({
+        title: "View Only",
+        description: "Only finance admin can approve donations.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!approvingDonation) return;
+
+    const verifiedAmount = Number(verifiedAmountInput);
+    if (!Number.isFinite(verifiedAmount) || verifiedAmount < 0) {
+      toast({
+        title: "Invalid Amount",
+        description: "Verified amount must be a valid number greater than or equal to 0.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const declaredAmount = Number(approvingDonation.donationAmount || 0);
+    const hasDiscrepancy = verifiedAmount !== declaredAmount;
+    if (hasDiscrepancy && !approvalReviewNote.trim()) {
+      toast({
+        title: "Review Note Required",
+        description: "Please add a note explaining the amount discrepancy.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setProcessingId(approvingDonation.id);
     try {
-      await updateDonationStatus(id, "approved");
+      await updateDonationStatus(approvingDonation.id, "approved", {
+        verifiedAmount,
+        reviewNote: approvalReviewNote.trim(),
+      });
       toast({
         title: "Success",
-        description: "Donation approved successfully",
+        description: hasDiscrepancy
+          ? "Donation approved with adjustment."
+          : "Donation approved successfully.",
       });
+
+      if (selectedDonation?.id === approvingDonation.id) {
+        setSelectedDonation({
+          ...selectedDonation,
+          status: "approved",
+          verifiedAmount,
+          discrepancyAmount: declaredAmount - verifiedAmount,
+          hasDiscrepancy,
+          reviewOutcome: hasDiscrepancy ? "approved_adjusted" : "approved_exact",
+          reviewNote: approvalReviewNote.trim(),
+        });
+      }
+
+      setApproveDialogOpen(false);
+      setApprovingDonation(null);
+      setVerifiedAmountInput("");
+      setApprovalReviewNote("");
     } catch (error) {
       toast({
         title: "Error",
@@ -229,7 +301,9 @@ const Donations = () => {
     const donationId = rejectingDonation.id;
     setProcessingId(donationId);
     try {
-      await updateDonationStatus(donationId, "rejected", trimmedReason);
+      await updateDonationStatus(donationId, "rejected", {
+        rejectionReason: trimmedReason,
+      });
       toast({
         title: "Success",
         description: "Donation rejected successfully",
@@ -240,6 +314,8 @@ const Donations = () => {
           ...selectedDonation,
           status: "rejected",
           rejectionReason: trimmedReason,
+          reviewOutcome: "rejected",
+          reviewNote: trimmedReason,
         });
       }
 
@@ -279,19 +355,10 @@ const Donations = () => {
         }
       }
       
-      if (receiptUrl) {
-        console.log("Opening receipt with URL:", receiptUrl);
-        setSelectedReceiptUrl(receiptUrl);
-        setSelectedDonation(donation);
-        setReceiptModalOpen(true);
-      } else {
-        console.log("No receipt URL available for donation:", donation.id);
-        toast({
-          title: "Receipt Not Found",
-          description: "Receipt URL not available.",
-          variant: "destructive",
-        });
-      }
+      console.log("Opening donation review modal:", donation.id);
+      setSelectedReceiptUrl(receiptUrl || "");
+      setSelectedDonation(donation);
+      setReceiptModalOpen(true);
     } catch (error) {
       console.error("Error viewing receipt:", error);
       toast({
@@ -300,6 +367,39 @@ const Donations = () => {
         variant: "destructive",
       });
     }
+  };
+
+  const openZoomModal = () => {
+    if (!selectedReceiptUrl) return;
+    setZoomLevel(1);
+    setZoomModalOpen(true);
+  };
+
+  const zoomIn = () => setZoomLevel((prev) => Math.min(4, Number((prev + 0.25).toFixed(2))));
+  const zoomOut = () => setZoomLevel((prev) => Math.max(1, Number((prev - 0.25).toFixed(2))));
+  const zoomReset = () => setZoomLevel(1);
+
+  const getDisplayStatus = (donation: Donation) => {
+    if (donation.status === "rejected") return "Rejected";
+    if (["approved", "active"].includes(donation.status)) {
+      if (donation.reviewOutcome === "approved_adjusted" || donation.hasDiscrepancy) {
+        return "Approved (Adjusted)";
+      }
+      return "Approved";
+    }
+    return "Pending";
+  };
+
+  const getDiscrepancyText = (donation: Donation) => {
+    if (!donation.hasDiscrepancy) return null;
+    const diff = Number(donation.discrepancyAmount || 0);
+    if (diff > 0) {
+      return `Short by ₱${diff.toLocaleString()}`;
+    }
+    if (diff < 0) {
+      return `Over by ₱${Math.abs(diff).toLocaleString()}`;
+    }
+    return null;
   };
 
   if (loading) {
@@ -355,38 +455,15 @@ const Donations = () => {
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 pt-1">
-                    {donation.receiptURL ? (
-                      <button
-                        onClick={() => handleViewReceipt(donation)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium"
-                      >
-                        <IconEye className="h-3.5 w-3.5" />
-                        View Receipt
-                      </button>
-                    ) : (
-                      <span className="text-muted-foreground text-xs italic">No receipt</span>
-                    )}
-                    {isFinanceAdmin ? (
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleApprove(donation.id)}
-                          disabled={processingId === donation.id}
-                          className="p-2 rounded-lg bg-green-500/10 text-green-600 disabled:opacity-50"
-                          title="Approve"
-                        >
-                          <IconCheck className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => openRejectDialog(donation)}
-                          disabled={processingId === donation.id}
-                          className="p-2 rounded-lg bg-red-500/10 text-red-600 disabled:opacity-50"
-                          title="Reject"
-                        >
-                          <IconX className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">View only</span>
+                    <button
+                      onClick={() => handleViewReceipt(donation)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium"
+                    >
+                      <IconEye className="h-3.5 w-3.5" />
+                      View
+                    </button>
+                    {isFinanceAdmin && (
+                      <span className="text-xs text-muted-foreground">Review inside View</span>
                     )}
                   </div>
                 </div>
@@ -404,9 +481,6 @@ const Donations = () => {
                       <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Payment Method</th>
                       <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Created Date</th>
                       <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Receipt</th>
-                      {isFinanceAdmin && (
-                        <th className="text-center p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Actions</th>
-                      )}
                     </tr>
                   </thead>
                 <tbody>
@@ -436,40 +510,14 @@ const Donations = () => {
                         })}
                       </td>
                       <td className="p-3 md:p-4 lg:p-5">
-                        {donation.receiptURL ? (
-                          <button
-                            onClick={() => handleViewReceipt(donation)}
-                            className="inline-flex items-center gap-2 px-2 md:px-3 py-1.5 md:py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-xs md:text-sm font-medium whitespace-nowrap"
-                          >
-                            <IconEye className="h-4 w-4" />
-                            View
-                          </button>
-                        ) : (
-                          <span className="text-muted-foreground text-xs md:text-sm italic">No receipt</span>
-                        )}
+                        <button
+                          onClick={() => handleViewReceipt(donation)}
+                          className="inline-flex items-center gap-2 px-2 md:px-3 py-1.5 md:py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-xs md:text-sm font-medium whitespace-nowrap"
+                        >
+                          <IconEye className="h-4 w-4" />
+                          View
+                        </button>
                       </td>
-                      {isFinanceAdmin && (
-                        <td className="p-3 md:p-4 lg:p-5">
-                          <div className="flex items-center justify-center gap-3">
-                            <button
-                              onClick={() => handleApprove(donation.id)}
-                              disabled={processingId === donation.id}
-                              className="p-2.5 rounded-lg bg-green-500/10 text-green-600 hover:bg-green-500/20 transition-all hover:scale-110 disabled:opacity-50 disabled:hover:scale-100"
-                              title="Approve"
-                            >
-                              <IconCheck className="h-5 w-5" />
-                            </button>
-                            <button
-                              onClick={() => openRejectDialog(donation)}
-                              disabled={processingId === donation.id}
-                              className="p-2.5 rounded-lg bg-red-500/10 text-red-600 hover:bg-red-500/20 transition-all hover:scale-110 disabled:opacity-50 disabled:hover:scale-100"
-                              title="Reject"
-                            >
-                              <IconX className="h-5 w-5" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -563,6 +611,7 @@ const Donations = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Amounts</SelectItem>
+                      <SelectItem value="discrepancy">Discrepancies Only</SelectItem>
                       <SelectItem value="low">Low (&lt; ₱10K)</SelectItem>
                       <SelectItem value="medium">Medium (₱10K - ₱50K)</SelectItem>
                       <SelectItem value="high">High (₱50K+)</SelectItem>
@@ -656,7 +705,16 @@ const Donations = () => {
                       <p className="font-semibold text-sm truncate">{donation.userName || "Loading..."}</p>
                       <p className="text-xs text-muted-foreground truncate">{donation.userEmail || donation.userId}</p>
                     </div>
-                    <span className="text-sm font-semibold whitespace-nowrap">₱{donation.donationAmount.toLocaleString()}</span>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold whitespace-nowrap">
+                        ₱{(donation.verifiedAmount ?? donation.donationAmount).toLocaleString()}
+                      </p>
+                      {donation.hasDiscrepancy && (
+                        <p className="text-[11px] text-amber-600 whitespace-nowrap">
+                          {getDiscrepancyText(donation)}
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="px-2 py-1 rounded-full bg-blue-500/10 text-blue-600 text-xs font-medium capitalize whitespace-nowrap">
@@ -664,16 +722,14 @@ const Donations = () => {
                     </span>
                     <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
                       ["approved", "active"].includes(donation.status)
-                        ? "bg-green-500/15 text-green-600"
+                        ? donation.hasDiscrepancy
+                          ? "bg-amber-500/15 text-amber-700"
+                          : "bg-green-500/15 text-green-600"
                         : donation.status === "rejected"
                           ? "bg-red-500/15 text-red-600"
                           : "bg-amber-500/15 text-amber-600"
                     }`}>
-                      {["approved", "active"].includes(donation.status)
-                        ? "Approved"
-                        : donation.status === "rejected"
-                          ? "Rejected"
-                          : "Pending"}
+                      {getDisplayStatus(donation)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 pt-1">
@@ -724,9 +780,14 @@ const Donations = () => {
                           </div>
                         </td>
                         <td className="p-3 md:p-4 lg:p-5">
-                          <span className="text-sm md:text-base font-semibold whitespace-nowrap">
-                            ₱{donation.donationAmount.toLocaleString()}
-                          </span>
+                          <div>
+                            <span className="text-sm md:text-base font-semibold whitespace-nowrap">
+                              ₱{(donation.verifiedAmount ?? donation.donationAmount).toLocaleString()}
+                            </span>
+                            {donation.hasDiscrepancy && (
+                              <p className="text-xs text-amber-700 mt-0.5">{getDiscrepancyText(donation)}</p>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3 md:p-4 lg:p-5">
                           <span className="px-2 md:px-3 py-1 md:py-1.5 rounded-full bg-blue-500/10 text-blue-600 text-xs md:text-sm font-medium capitalize whitespace-nowrap">
@@ -743,16 +804,14 @@ const Donations = () => {
                         <td className="p-3 md:p-4 lg:p-5">
                           <span className={`inline-flex px-2 md:px-3 py-1 md:py-1.5 rounded-full text-xs font-semibold ${
                             ["approved", "active"].includes(donation.status)
-                              ? "bg-green-500/15 text-green-600"
+                              ? donation.hasDiscrepancy
+                                ? "bg-amber-500/15 text-amber-700"
+                                : "bg-green-500/15 text-green-600"
                               : donation.status === "rejected"
                                 ? "bg-red-500/15 text-red-600"
                                 : "bg-amber-500/15 text-amber-600"
                           }`}>
-                            {["approved", "active"].includes(donation.status)
-                              ? "Approved"
-                              : donation.status === "rejected"
-                                ? "Rejected"
-                                : "Pending"}
+                            {getDisplayStatus(donation)}
                           </span>
                         </td>
                         <td className="p-3 md:p-4 lg:p-5">
@@ -853,6 +912,20 @@ const Donations = () => {
                     <p className="font-semibold text-lg text-primary">₱{selectedDonation.donationAmount.toLocaleString()}</p>
                   </div>
                   <div>
+                    <p className="text-xs text-muted-foreground mb-1">Verified Amount</p>
+                    <p className="font-semibold text-lg">
+                      ₱{(selectedDonation.verifiedAmount ?? selectedDonation.donationAmount).toLocaleString()}
+                    </p>
+                  </div>
+                  {selectedDonation.hasDiscrepancy && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Discrepancy</p>
+                      <p className="font-semibold text-amber-700">
+                        {getDiscrepancyText(selectedDonation)}
+                      </p>
+                    </div>
+                  )}
+                  <div>
                     <p className="text-xs text-muted-foreground mb-1">Payment Method</p>
                     <span className="inline-flex px-3 py-1 rounded-full bg-blue-500/10 text-blue-600 text-xs font-semibold capitalize">
                       {selectedDonation.paymentMethod}
@@ -874,18 +947,24 @@ const Donations = () => {
                     <p className="text-xs text-muted-foreground mb-1">Status</p>
                     <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${
                       ["approved", "active"].includes(selectedDonation.status)
-                        ? "bg-green-500/15 text-green-600"
+                        ? selectedDonation.hasDiscrepancy
+                          ? "bg-amber-500/15 text-amber-700"
+                          : "bg-green-500/15 text-green-600"
                         : selectedDonation.status === "rejected"
                         ? "bg-red-500/15 text-red-600"
                         : "bg-amber-500/15 text-amber-600"
                     }`}>
-                      {["approved", "active"].includes(selectedDonation.status)
-                        ? "Approved"
-                        : selectedDonation.status === "rejected"
-                        ? "Rejected"
-                        : "Pending"}
+                      {getDisplayStatus(selectedDonation)}
                     </span>
                   </div>
+                  {selectedDonation.reviewNote?.trim() && (
+                    <div className="md:col-span-2">
+                      <p className="text-xs text-muted-foreground mb-1">Review Note</p>
+                      <p className="font-semibold whitespace-pre-wrap">
+                        {selectedDonation.reviewNote.trim()}
+                      </p>
+                    </div>
+                  )}
                   {selectedDonation.status === "rejected" && (
                     <div className="md:col-span-2">
                       <p className="text-xs text-muted-foreground mb-1">Rejection Reason</p>
@@ -917,11 +996,13 @@ const Donations = () => {
 
                 {/* Image Display */}
                 {selectedReceiptUrl ? (
-                  <div className="bg-muted/30 rounded-lg p-4">
+                  <div className="bg-muted/30 rounded-lg p-3 sm:p-4">
                     <img
                       src={selectedReceiptUrl}
                       alt="Payment Receipt"
-                      className="w-full h-auto rounded-lg shadow-lg border border-border"
+                      className="mx-auto w-auto max-w-full max-h-[420px] object-contain rounded-lg shadow-lg border border-border cursor-zoom-in"
+                      onClick={openZoomModal}
+                      title="Click to zoom"
                       onLoad={() => {
                         console.log("âœ… Receipt image loaded successfully");
                         console.log("Image URL:", selectedReceiptUrl);
@@ -971,8 +1052,156 @@ const Donations = () => {
                   </div>
                 )}
               </div>
+
+              {isFinanceAdmin && selectedDonation.status === "pending" && (
+                <div className="flex flex-wrap justify-end gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setReceiptModalOpen(false);
+                      openRejectDialog(selectedDonation);
+                    }}
+                    disabled={processingId === selectedDonation.id}
+                    className="border-red-200 text-red-600 hover:bg-red-50"
+                  >
+                    Reject Donation
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setReceiptModalOpen(false);
+                      openApproveDialog(selectedDonation);
+                    }}
+                    disabled={processingId === selectedDonation.id}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    Approve / Adjust Amount
+                  </Button>
+                </div>
+              )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={zoomModalOpen}
+        onOpenChange={(open) => {
+          setZoomModalOpen(open);
+          if (!open) {
+            setZoomLevel(1);
+          }
+        }}
+      >
+        <DialogContent className="w-[96vw] sm:max-w-6xl max-h-[92vh] overflow-hidden">
+          <DialogHeader className="border-b pb-3">
+            <DialogTitle className="text-lg">Receipt Image Zoom</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={zoomOut} disabled={zoomLevel <= 1}>
+              -
+            </Button>
+            <span className="text-sm text-muted-foreground min-w-[64px] text-center">
+              {Math.round(zoomLevel * 100)}%
+            </span>
+            <Button variant="outline" size="sm" onClick={zoomIn} disabled={zoomLevel >= 4}>
+              +
+            </Button>
+            <Button variant="outline" size="sm" onClick={zoomReset}>
+              Reset
+            </Button>
+          </div>
+
+          <div className="mt-2 h-[70vh] overflow-auto rounded-md border bg-muted/20 p-3">
+            {selectedReceiptUrl ? (
+              <img
+                src={selectedReceiptUrl}
+                alt="Zoomed payment receipt"
+                className="mx-auto origin-top rounded-md border border-border bg-background"
+                style={{
+                  transform: `scale(${zoomLevel})`,
+                  transformOrigin: "top center",
+                  maxWidth: "100%",
+                  height: "auto",
+                }}
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center text-muted-foreground">
+                No image available.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={approveDialogOpen}
+        onOpenChange={(open) => {
+          setApproveDialogOpen(open);
+          if (!open) {
+            setApprovingDonation(null);
+            setVerifiedAmountInput("");
+            setApprovalReviewNote("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Approve Donation</DialogTitle>
+            <DialogDescription>
+              Confirm the verified amount from the receipt. If it differs from declared amount, add a review note.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md bg-muted/50 p-3 text-sm">
+              <p>
+                Declared Amount:{" "}
+                <span className="font-semibold">
+                  ₱{(approvingDonation?.donationAmount || 0).toLocaleString()}
+                </span>
+              </p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Verified Amount</label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={verifiedAmountInput}
+                onChange={(event) => setVerifiedAmountInput(event.target.value)}
+                placeholder="Enter verified amount from receipt"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Review Note</label>
+              <Textarea
+                value={approvalReviewNote}
+                onChange={(event) => setApprovalReviewNote(event.target.value)}
+                placeholder="Required when verified amount is different from declared amount."
+                rows={3}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setApproveDialogOpen(false);
+                  setApprovingDonation(null);
+                  setVerifiedAmountInput("");
+                  setApprovalReviewNote("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleApprove}
+                disabled={processingId === approvingDonation?.id}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                {processingId === approvingDonation?.id ? "Approving..." : "Approve Donation"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
