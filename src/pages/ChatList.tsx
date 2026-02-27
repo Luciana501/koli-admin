@@ -5,6 +5,7 @@ import { auth, db } from "@/lib/firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { IconMessage } from "@tabler/icons-react";
+import PageLoading from "@/components/PageLoading";
 
 interface Admin {
   id: string;
@@ -138,11 +139,7 @@ const ChatList = () => {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-muted-foreground">Loading messages...</div>
-      </div>
-    );
+    return <PageLoading className="min-h-[16rem]" />;
   }
 
   return (

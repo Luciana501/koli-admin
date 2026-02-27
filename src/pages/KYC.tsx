@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { User } from "@/types/admin";
-import { subscribeToKYC, updateKYCStatus } from "@/services/firestore";
+import { PlatformCode, subscribeToKYC, subscribeToPlatformCodes, updateKYCStatus } from "@/services/firestore";
 import {
   IDValidationResponse,
   ImageValidationResponse,
@@ -8,7 +8,7 @@ import {
   analyzeIdentificationImage,
   validateIdentificationNumber,
 } from "@/services/idValidation";
-import { IconCheck, IconX, IconUser, IconEye, IconPhone, IconMapPin, IconCalendar, IconDownload, IconFilter } from "@tabler/icons-react";
+import { IconCheck, IconX, IconUser, IconEye, IconPhone, IconMapPin, IconCalendar, IconDownload, IconFilter, IconSearch } from "@tabler/icons-react";
 import {
   Pagination,
   PaginationContent,
@@ -31,10 +31,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import PageLoading from "@/components/PageLoading";
 
 const KYC = () => {
   const [users, setUsers] = useState<User[]>([]);
+  const [platformCodes, setPlatformCodes] = useState<PlatformCode[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
@@ -47,8 +51,12 @@ const KYC = () => {
   const [analysisLoadingUserId, setAnalysisLoadingUserId] = useState<string | null>(null);
   const [imageLoadError, setImageLoadError] = useState(false);
   const { toast } = useToast();
-  const itemsPerPage = 10;
+  const itemsPerPage = 50;
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+  const [sortOrder, setSortOrder] = useState<"latest" | "oldest">("latest");
   const [kycStatusFilter, setKycStatusFilter] = useState("all");
+  const [idTypeFilter, setIdTypeFilter] = useState("all");
 
   useEffect(() => {
     // Subscribe to real-time KYC updates
@@ -60,20 +68,126 @@ const KYC = () => {
     return () => unsubscribe();
   }, []);
 
-  // Reset to page 1 when filter changes
+  useEffect(() => {
+    const unsubscribe = subscribeToPlatformCodes((codes) => {
+      setPlatformCodes(codes);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Reset to page 1 when filters/search/sort change
   useEffect(() => {
     setCurrentPage(1);
     setHistoryPage(1);
-  }, [kycStatusFilter]);
+  }, [searchTerm, sortOrder, kycStatusFilter, idTypeFilter]);
 
-  const pendingKYC = users.filter((u) => u.kycStatus === "PENDING");
-  
-  const processedKYC = users.filter((u) => {
-    const isProcessed = u.kycStatus === "APPROVED" || u.kycStatus === "REJECTED";
-    if (!isProcessed) return false;
-    if (kycStatusFilter === "all") return true;
-    return u.kycStatus === kycStatusFilter;
-  });
+  const getNormalizedIdentificationType = (user: User): SupportedIDType | null => {
+    const manualData = user.kycManualData as Record<string, unknown> | undefined;
+    const rawType = (
+      user.kycManualData?.identificationType ||
+      (typeof manualData?.idType === "string" ? manualData.idType : "")
+    ).trim();
+
+    if (!rawType) return null;
+
+    const allowedTypes: SupportedIDType[] = [
+      "Philippine Passport",
+      "Driver's License",
+      "SSS ID",
+      "GSIS ID",
+      "UMID",
+      "PhilHealth ID",
+      "TIN ID",
+      "Postal ID",
+      "Voter's ID",
+      "PRC ID",
+      "Senior Citizen ID",
+      "PWD ID",
+      "National ID",
+      "Others",
+    ];
+
+    if (rawType === "UMID (Unified Multi-Purpose ID)") return "UMID";
+    if (rawType === "PRC ID (Professional License)") return "PRC ID";
+    if (rawType === "National ID (PhilSys)") return "National ID";
+
+    return allowedTypes.includes(rawType as SupportedIDType) ? (rawType as SupportedIDType) : "Others";
+  };
+
+  const getSubmissionMs = (user: User) => {
+    const source = user.kycSubmittedAt || user.createdAt;
+    if (!source) return 0;
+    const parsed = new Date(source).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const getUserLeaderName = (user: User): string => {
+    if (user.leaderName?.trim()) return user.leaderName.trim();
+
+    const platformCodeId = (user.platformCodeId || "").trim();
+    const platformCode = (user.platformCode || "").trim().toUpperCase();
+
+    if (!platformCodeId && !platformCode) {
+      return user.leaderId?.trim() ? user.leaderId.trim() : "N/A";
+    }
+
+    const matchedCode = platformCodes.find((code) => {
+      const codeId = (code.id || "").trim().toUpperCase();
+      const codeValue = (code.code || "").trim().toUpperCase();
+      return (
+        (platformCodeId && codeId === platformCodeId.toUpperCase()) ||
+        (platformCode && (codeId === platformCode || codeValue === platformCode))
+      );
+    });
+
+    if (matchedCode?.leaderName?.trim()) return matchedCode.leaderName.trim();
+    if (matchedCode?.leaderId?.trim()) return matchedCode.leaderId.trim();
+    if (user.leaderId?.trim()) return user.leaderId.trim();
+    return "N/A";
+  };
+
+  const pendingKYC = [...users]
+    .filter((u) => u.kycStatus === "PENDING")
+    .sort((a, b) => getSubmissionMs(b) - getSubmissionMs(a));
+
+  const historyUsers = users.filter((u) => u.kycStatus === "APPROVED" || u.kycStatus === "REJECTED");
+
+  const idTypeOptions = Array.from(
+    new Set(historyUsers.map((user) => getNormalizedIdentificationType(user)).filter((value): value is SupportedIDType => Boolean(value)))
+  ).sort((a, b) => a.localeCompare(b));
+
+  const filteredAndSortedUsers = [...historyUsers]
+    .filter((user) => {
+      const normalizedSearch = searchTerm.toLowerCase();
+      const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim().toLowerCase();
+      const userStatus = user.kycStatus || "NOT_SUBMITTED";
+      const userIdType = getNormalizedIdentificationType(user);
+
+      const matchesSearch =
+        !normalizedSearch ||
+        fullName.includes(normalizedSearch) ||
+        (user.name || "").toLowerCase().includes(normalizedSearch) ||
+        (user.email || "").toLowerCase().includes(normalizedSearch) ||
+        (user.phoneNumber || "").toLowerCase().includes(normalizedSearch) ||
+        (user.kycManualData?.phoneNumber || "").toLowerCase().includes(normalizedSearch) ||
+        (user.address || "").toLowerCase().includes(normalizedSearch) ||
+        (user.kycManualData?.address || "").toLowerCase().includes(normalizedSearch) ||
+        (user.leaderName || "").toLowerCase().includes(normalizedSearch) ||
+        (user.leaderId || "").toLowerCase().includes(normalizedSearch);
+
+      const matchesStatus = kycStatusFilter === "all" || userStatus === kycStatusFilter;
+      const matchesIdType = idTypeFilter === "all" || userIdType === idTypeFilter;
+
+      return matchesSearch && matchesStatus && matchesIdType;
+    })
+    .sort((a, b) => {
+      const timeA = getSubmissionMs(a);
+      const timeB = getSubmissionMs(b);
+      return sortOrder === "latest" ? timeB - timeA : timeA - timeB;
+    });
+
+  const processedKYC = filteredAndSortedUsers;
 
   const totalPages = Math.ceil(pendingKYC.length / itemsPerPage);
   const historyTotalPages = Math.ceil(processedKYC.length / itemsPerPage);
@@ -104,39 +218,12 @@ const KYC = () => {
   };
 
   const getIdentificationType = (user: User): SupportedIDType => {
-    const manualData = user.kycManualData as Record<string, unknown> | undefined;
-    const rawType = (
-      user.kycManualData?.identificationType ||
-      (typeof manualData?.idType === "string" ? manualData.idType : "") ||
-      "Others"
-    ).trim();
-
-    const allowedTypes: SupportedIDType[] = [
-      "Philippine Passport",
-      "Driver's License",
-      "SSS ID",
-      "GSIS ID",
-      "UMID",
-      "PhilHealth ID",
-      "TIN ID",
-      "Postal ID",
-      "Voter's ID",
-      "PRC ID",
-      "Senior Citizen ID",
-      "PWD ID",
-      "National ID",
-      "Others",
-    ];
-
-    if (rawType === "UMID (Unified Multi-Purpose ID)") return "UMID";
-    if (rawType === "PRC ID (Professional License)") return "PRC ID";
-    if (rawType === "National ID (PhilSys)") return "National ID";
-
-    return allowedTypes.includes(rawType as SupportedIDType) ? (rawType as SupportedIDType) : "Others";
+    return getNormalizedIdentificationType(user) || "Others";
   };
 
   const selectedIdNumber = selectedUser ? getIdentificationNumber(selectedUser) : "";
   const selectedIdType = selectedUser ? getIdentificationType(selectedUser) : "Others";
+  const selectedLeaderName = selectedUser ? getUserLeaderName(selectedUser) : "N/A";
   const selectedMlResult = selectedUser ? mlValidationByUser[selectedUser.id] : undefined;
   const selectedImageResult = selectedUser ? imageValidationByUser[selectedUser.id] : undefined;
   const isSelectedMlLoading = selectedUser ? analysisLoadingUserId === selectedUser.id : false;
@@ -322,14 +409,17 @@ const KYC = () => {
     }
   };
 
+  const clearFilters = () => {
+    setSearchTerm("");
+    setSortOrder("latest");
+    setKycStatusFilter("all");
+    setIdTypeFilter("all");
+    setCurrentPage(1);
+    setHistoryPage(1);
+  };
+
   if (loading) {
-    return (
-      <div className="p-4 md:p-6 lg:p-8">
-        <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">Loading KYC applications...</p>
-        </div>
-      </div>
-    );
+    return <PageLoading className="min-h-[16rem]" />;
   }
 
   return (
@@ -359,10 +449,11 @@ const KYC = () => {
         ) : (
           <>
             <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
-              <ul className="divide-y divide-border">
-                {paginatedPending.map((user, index) => (
-                  <li key={user.id} className="hover:bg-muted/40 transition-colors">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 p-4 sm:p-5">
+              <div className="max-h-[55vh] overflow-y-auto">
+                <ul className="divide-y divide-border">
+                  {paginatedPending.map((user, index) => (
+                    <li key={user.id} className="hover:bg-muted/40 transition-colors">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 p-4 sm:p-5">
                       {/* Number */}
                       <div className="hidden sm:block text-3xl font-thin opacity-30 tabular-nums min-w-[3rem]">
                         {String(startIndex + index + 1).padStart(2, '0')}
@@ -411,10 +502,11 @@ const KYC = () => {
                         <IconEye className="h-4 w-4" />
                         View
                       </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
 
             {totalPages > 1 && (
@@ -452,6 +544,101 @@ const KYC = () => {
         )}
       </div>
 
+      <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+        <div className="p-4 sm:p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+            <div className="relative flex-1 max-w-full sm:max-w-md">
+              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search users by name, email, phone, or address..."
+                className="pl-10"
+              />
+            </div>
+            <div className="flex gap-2 items-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowFilters(!showFilters)}
+                className="flex items-center gap-2"
+              >
+                <IconFilter className="h-4 w-4" />
+                Filters
+                {(kycStatusFilter !== "all" || idTypeFilter !== "all" || searchTerm) && (
+                  <div className="w-2 h-2 bg-primary rounded-full" />
+                )}
+              </Button>
+              {(kycStatusFilter !== "all" || idTypeFilter !== "all" || searchTerm || sortOrder !== "latest") && (
+                <Button variant="ghost" size="sm" onClick={clearFilters}>
+                  <IconX className="h-4 w-4" />
+                </Button>
+              )}
+              <div className="text-sm font-medium text-muted-foreground ml-2">
+                Total Users: {filteredAndSortedUsers.length}
+              </div>
+            </div>
+          </div>
+
+          {showFilters && (
+            <div className="bg-muted/50 p-4 rounded-lg space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Sort By</label>
+                  <Select
+                    value={sortOrder}
+                    onValueChange={(value) => setSortOrder(value as "latest" | "oldest")}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Sort order" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="latest">Latest First</SelectItem>
+                      <SelectItem value="oldest">Oldest First</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">KYC Status</label>
+                    <Select value={kycStatusFilter} onValueChange={setKycStatusFilter}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="All Statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        <SelectItem value="APPROVED">Approved</SelectItem>
+                        <SelectItem value="REJECTED">Rejected</SelectItem>
+                      </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">ID Type</label>
+                  <Select value={idTypeFilter} onValueChange={setIdTypeFilter}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="All ID Types" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All ID Types</SelectItem>
+                      {idTypeOptions.map((idType) => (
+                        <SelectItem key={idType} value={idType}>
+                          {idType}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Showing {filteredAndSortedUsers.length} of {historyUsers.length} users
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* KYC History */}
       <div className="space-y-5">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -461,24 +648,6 @@ const KYC = () => {
           </div>
         </div>
         
-        {/* Filter Feature */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-          <div className="flex items-center gap-2">
-            <IconFilter className="h-5 w-5 text-muted-foreground" />
-            <label className="text-sm font-medium text-foreground whitespace-nowrap">Filter by Status:</label>
-          </div>
-          <Select value={kycStatusFilter} onValueChange={setKycStatusFilter}>
-            <SelectTrigger className="w-full sm:w-[180px] h-10">
-              <SelectValue placeholder="All Statuses" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="APPROVED">Approved</SelectItem>
-              <SelectItem value="REJECTED">Rejected</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        
         {processedKYC.length === 0 ? (
           <div className="bg-gradient-to-br from-muted/30 to-muted/10 border-2 border-dashed border-border rounded-xl p-12 text-center">
             <p className="text-muted-foreground text-lg">No processed applications yet</p>
@@ -486,10 +655,11 @@ const KYC = () => {
         ) : (
           <>
             <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
-              <ul className="divide-y divide-border">
-                {paginatedHistory.map((user, index) => (
-                  <li key={user.id} className="hover:bg-muted/40 transition-colors">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 p-4 sm:p-5">
+              <div className="max-h-[55vh] overflow-y-auto">
+                <ul className="divide-y divide-border">
+                  {paginatedHistory.map((user, index) => (
+                    <li key={user.id} className="hover:bg-muted/40 transition-colors">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 p-4 sm:p-5">
                       {/* Number */}
                       <div className="hidden sm:block text-3xl font-thin opacity-30 tabular-nums min-w-[3rem]">
                         {String(historyStartIndex + index + 1).padStart(2, '0')}
@@ -547,10 +717,11 @@ const KYC = () => {
                         <IconEye className="h-4 w-4" />
                         View
                       </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
 
             {historyTotalPages > 1 && (
@@ -616,6 +787,10 @@ const KYC = () => {
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Address</p>
                     <p className="font-semibold">{selectedUser.kycManualData?.address || selectedUser.address || "N/A"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Leader</p>
+                    <p className="font-semibold">{selectedLeaderName}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Submitted At</p>

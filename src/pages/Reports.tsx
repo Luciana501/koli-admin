@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
-import { CartesianGrid, Line, LineChart, XAxis, YAxis, Bar, BarChart, Pie, PieChart, Label } from "recharts";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { CartesianGrid, Line, LineChart, XAxis, YAxis, Bar, BarChart, PolarGrid, RadialBar, RadialBarChart, Cell } from "recharts";
 import {
   Select,
   SelectContent,
@@ -9,51 +9,36 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 import { IconDownload } from "@tabler/icons-react";
 import { TrendingUp } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { fetchReportAnalytics, ReportData, fetchManaRewardAnalytics, ManaRewardAnalytics, fetchDashboardStats } from "@/services/firestore";
+import PageLoading from "@/components/PageLoading";
 
-// Custom tooltip component for proper date formatting
-const CustomChartTooltip = ({ active, payload, label, currencyFormatter, chartType }: any) => {
+const CustomChartTooltip = ({ active, payload, currencyFormatter, chartType }: any) => {
   if (!active || !payload || payload.length === 0) return null;
   
   const dataPoint = payload[0];
-  const timestamp = dataPoint.payload?.date;
+  const formattedDate = dataPoint.payload?.fullLabel || "";
+  const value = Number(dataPoint.value || 0);
+  const formattedValue = chartType === "users" ? value.toLocaleString() : currencyFormatter(value);
+  const seriesLabel =
+    chartType === "users"
+      ? "Users"
+      : chartType === "donations"
+        ? "Donations"
+        : chartType === "rewards"
+          ? "Rewards"
+          : "Total Assets";
   
-  if (!timestamp) return null;
-  
-  try {
-    const date = new Date(timestamp);
-    const formattedDate = date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-    
-    const value = dataPoint.value;
-    const formattedValue = chartType === "users" 
-      ? String(value)
-      : currencyFormatter(value);
-    
-    return (
-      <div className="bg-background border border-border rounded-lg p-2 shadow-lg">
-        <p className="text-sm font-medium">{formattedDate}</p>
-        <p className="text-sm text-muted-foreground">{dataPoint.name}: {formattedValue}</p>
-      </div>
-    );
-  } catch (e) {
-    return null;
-  }
-};
-
-const dateFormatter = (date: Date) => {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(date);
+  return (
+    <div className="bg-background border border-border rounded-lg p-2 shadow-lg">
+      <p className="text-sm font-medium">{formattedDate}</p>
+      <p className="text-sm text-muted-foreground">{seriesLabel}: {formattedValue}</p>
+    </div>
+  );
 };
 
 const getDateFormatter = (timeRange: string) => {
@@ -64,13 +49,12 @@ const getDateFormatter = (timeRange: string) => {
       day: "numeric",
     }).format(date);
   } else if (timeRange === "3months" || timeRange === "6months") {
-    // Weekly format - show week start
+    // Weekly format - show week start (compact)
     return (date: Date) => {
-      const weekStart = new Date(date);
-      return `Week of ${new Intl.DateTimeFormat("en-US", {
+      return new Intl.DateTimeFormat("en-US", {
         month: "short",
         day: "numeric",
-      }).format(weekStart)}`;
+      }).format(date);
     };
   } else {
     // Monthly format
@@ -87,6 +71,25 @@ const currencyFormatter = (value: number) => {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(value);
+};
+
+const compactCurrencyTickFormatter = (value: number) => {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+  return `${Math.round(value)}`;
+};
+
+const getDistributionPalette = (type: string) => {
+  if (type === "donations") {
+    return ["#a7f3d0", "#6ee7b7", "#34d399", "#10b981", "#059669", "#047857", "#065f46"];
+  }
+  if (type === "rewards") {
+    return ["#fde68a", "#fcd34d", "#fbbf24", "#f59e0b", "#d97706", "#b45309", "#92400e"];
+  }
+  if (type === "assets") {
+    return ["#ddd6fe", "#c4b5fd", "#a78bfa", "#8b5cf6", "#7c3aed", "#6d28d9", "#5b21b6"];
+  }
+  return ["#93c5fd", "#60a5fa", "#3b82f6", "#2563eb", "#1d4ed8", "#1e40af", "#1e3a8a"];
 };
 
 const Reports = () => {
@@ -116,19 +119,9 @@ const Reports = () => {
         fetchManaRewardAnalytics(),
         fetchDashboardStats(),
       ]);
-      console.log(`📊 Reports.tsx received ${chartAnalytics.length} data points for ${chartType}`);
-      console.log(`📈 First 3 data points:`, chartAnalytics.slice(0, 3));
-      console.log(`📈 First 3 dates check:`, chartAnalytics.slice(0, 3).map(d => ({
-        date: d.date,
-        dateType: typeof d.date,
-        isValidDate: d.date instanceof Date && !isNaN(d.date.getTime()),
-        timestamp: d.date instanceof Date ? d.date.getTime() : 'NOT A DATE',
-        value: chartType === "users" ? d.count : d.amount
-      })));
       
       // Validate and filter out any invalid dates
       const validData = chartAnalytics.filter(d => d.date instanceof Date && !isNaN(d.date.getTime()));
-      console.log(`✅ ${validData.length} valid data points out of ${chartAnalytics.length}`);
       
       setChartData(validData);
       setManaRewardData(rewardAnalytics);
@@ -152,24 +145,6 @@ const Reports = () => {
     if (chartType === "rewards") return "Rewards";
     return "Total Assets";
   };
-
-  if (loading || chartData.length === 0) {
-    return (
-      <div className="h-full bg-background p-2 sm:p-4 md:p-6 lg:p-8">
-        <div className="mb-6">
-          <h1 className="text-lg sm:text-2xl font-bold">Reports</h1>
-          <p className="text-muted-foreground mt-1">
-            View analytics and statistics
-          </p>
-        </div>
-        <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">
-            {loading ? "Loading report data..." : "No data available for the selected time range"}
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   const getTimeRangeLabel = () => {
     switch (timeRange) {
@@ -224,11 +199,70 @@ const Reports = () => {
     }
   };
 
+  const preparedChartData = useMemo(
+    () =>
+      chartData.map((d) => {
+        const value = chartType === "users" ? (d.count || 0) : (d.amount || 0);
+        return {
+          date: d.date,
+          xLabel: getDateFormatter(timeRange)(d.date),
+          fullLabel: new Intl.DateTimeFormat("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }).format(d.date),
+          value,
+        };
+      }),
+    [chartData, chartType, timeRange]
+  );
+
+  const getIncrementalValue = (index: number) => {
+    const current = preparedChartData[index]?.value || 0;
+    if (chartType !== "assets" && chartType !== "rewards") return current;
+    const previous = index > 0 ? preparedChartData[index - 1]?.value || 0 : 0;
+    return Math.max(0, current - previous);
+  };
+
+  const distributionData = useMemo(() => {
+    const palette = getDistributionPalette(chartType);
+
+    return preparedChartData
+      .map((item, idx) => {
+        const value = getIncrementalValue(idx);
+        return {
+          label: item.xLabel,
+          fullLabel: item.fullLabel,
+          value,
+          key: `bucket${idx}`,
+          fill: palette[idx % palette.length],
+        };
+      })
+      .slice(-12);
+  }, [preparedChartData, chartType, timeRange]);
+
+  const distributionChartConfig = useMemo(() => {
+    const config: ChartConfig = {
+      value: { label: getChartLabel() },
+    };
+
+    distributionData.forEach((item) => {
+      config[item.key] = {
+        label: item.label,
+        color: item.fill,
+      };
+    });
+
+    return config;
+  }, [distributionData, chartType]);
+
   const calculateSummaryStats = () => {
-    if (chartData.length === 0) return { total: 0, average: 0, highest: 0, lowest: 0 };
+    if (preparedChartData.length === 0) return { total: 0, average: 0, highest: 0, lowest: 0 };
     
-    const values = chartData.map(d => chartType === "users" ? (d.count || 0) : (d.amount || 0));
-    const total = values[values.length - 1] || 0; // Latest cumulative value
+    const values = preparedChartData.map((d) => d.value);
+    const total = (chartType === "assets" || chartType === "rewards")
+      ? (values[values.length - 1] || 0)
+      : values.reduce((sum, value) => sum + value, 0);
     const average = values.reduce((a, b) => a + b, 0) / values.length;
     const highest = Math.max(...values);
     const lowest = Math.min(...values);
@@ -244,23 +278,18 @@ const Reports = () => {
   } satisfies ChartConfig;
 
   const calculateTrend = () => {
-    if (chartData.length < 2) return 0;
+    if (preparedChartData.length < 2) return 0;
     
-    const lastValue = chartType === "users" 
-      ? (chartData[chartData.length - 1].count || 0)
-      : (chartData[chartData.length - 1].amount || 0);
+    const lastValue = preparedChartData[preparedChartData.length - 1].value || 0;
+    const previousValue = preparedChartData[preparedChartData.length - 2].value || 0;
     
-    const firstValue = chartType === "users"
-      ? (chartData[0].count || 0)
-      : (chartData[0].amount || 0);
+    if (previousValue === 0) return 0;
     
-    if (firstValue === 0) return 0;
-    
-    return ((lastValue - firstValue) / firstValue) * 100;
+    return ((lastValue - previousValue) / previousValue) * 100;
   };
 
-  const getMobileFriendlyDateLabel = (value: number) => {
-    const date = new Date(value);
+  const getMobileFriendlyDateLabel = (dateValue: Date) => {
+    const date = new Date(dateValue);
     if (isMobile) {
       return new Intl.DateTimeFormat("en-US", {
         month: "short",
@@ -270,7 +299,9 @@ const Reports = () => {
     return getDateFormatter(timeRange)(date);
   };
 
-  const mobileXAxisInterval = isMobile ? Math.max(1, Math.floor(chartData.length / 3)) : 0;
+  const mobileXAxisInterval = isMobile ? Math.max(1, Math.floor(preparedChartData.length / 4)) : 0;
+  const yAxisTickFormatter = (value: number) =>
+    chartType === "users" ? String(Math.round(value)) : compactCurrencyTickFormatter(value);
 
   const handleExportPDF = async () => {
     if (!reportsRef.current || !manaRewardData || !dashboardStats) return;
@@ -284,322 +315,211 @@ const Reports = () => {
 
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 15;
+      const margin = 14;
       const contentWidth = pageWidth - (margin * 2);
-      let yPosition = margin;
-      let pageNumber = 1;
+      const headerHeight = 24;
+      const bodyTop = 34;
+      const bodyBottom = pageHeight - 16;
+      const dark = [15, 23, 42] as const;
+      const accent = [30, 64, 175] as const;
+      const lightBg = [246, 248, 252] as const;
+      const mutedText = [95, 105, 125] as const;
 
-      // Helper function to add page header
-      const addPageHeader = (pageNum: number) => {
-        // Dark background like the website
-        pdf.setFillColor(20, 24, 35);
-        pdf.rect(0, 0, pageWidth, 35, "F");
-        
-        // Gold text for branding
-        pdf.setTextColor(245, 184, 0);
-        pdf.setFontSize(24);
-        pdf.setFont("helvetica", "bold");
-        pdf.text("KOLI ADMIN", margin, 15);
-        
-        pdf.setFontSize(12);
-        pdf.setFont("helvetica", "normal");
+      const metricFormat = (value: number) =>
+        chartType === "users" ? value.toLocaleString() : currencyFormatter(value);
+
+      const currentValue = preparedChartData[preparedChartData.length - 1]?.value || 0;
+      const summary = calculateSummaryStats();
+      const trend = calculateTrend();
+
+      const drawHeader = (title: string, subtitle: string) => {
+        pdf.setFillColor(dark[0], dark[1], dark[2]);
+        pdf.rect(0, 0, pageWidth, headerHeight, "F");
         pdf.setTextColor(255, 255, 255);
-        pdf.text("Comprehensive Analytics Report", margin, 24);
-        
-        const currentDate = new Date().toLocaleDateString("en-US", { 
-          year: "numeric", 
-          month: "long", 
-          day: "numeric" 
-        });
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(13);
+        pdf.text("KOLI ADMIN", margin, 9);
+        pdf.setFont("helvetica", "normal");
         pdf.setFontSize(10);
-        pdf.text(currentDate, pageWidth - margin, 15, { align: "right" });
-        pdf.text(getTimeRangeLabel(), pageWidth - margin, 24, { align: "right" });
-        
-        if (chartData.length > 0) {
-          pdf.setFontSize(8);
-          pdf.text(getDateRangeText(), pageWidth - margin, 30, { align: "right" });
-        }
-      };
-
-      // Helper function to add page footer
-      const addPageFooter = (pageNum: number, totalPages: string) => {
+        pdf.text(title, margin, 16);
+        pdf.setTextColor(200, 210, 230);
         pdf.setFontSize(8);
-        pdf.setTextColor(150, 150, 150);
-        pdf.setFont("helvetica", "italic");
-        pdf.text("Generated by KOLI Admin System", margin, pageHeight - 10);
-        pdf.text(`Page ${pageNum} of ${totalPages}`, pageWidth - margin, pageHeight - 10, { align: "right" });
+        pdf.text(subtitle, pageWidth - margin, 16, { align: "right" });
       };
 
-      // Helper function to check if new page is needed
-      const checkNewPage = (requiredSpace: number) => {
-        if (yPosition + requiredSpace > pageHeight - 20) {
-          addPageFooter(pageNumber, "...");
-          pdf.addPage();
-          pageNumber++;
-          addPageHeader(pageNumber);
-          yPosition = 45;
-          return true;
-        }
-        return false;
-      };
-
-      // Helper function to add section title
-      const addSectionTitle = (title: string, colorRGB: number[] = [245, 184, 0]) => {
-        checkNewPage(15);
-        pdf.setFillColor(colorRGB[0], colorRGB[1], colorRGB[2]);
-        pdf.rect(margin, yPosition, contentWidth, 8, "F");
-        
-        // Use dark text on gold background for better readability
-        pdf.setTextColor(20, 24, 35);
-        pdf.setFontSize(11);
-        pdf.setFont("helvetica", "bold");
-        pdf.text(title.toUpperCase(), margin + 3, yPosition + 5.5);
-        yPosition += 12;
-      };
-
-      // PAGE 1: Executive Summary
-      addPageHeader(pageNumber);
-      yPosition = 45;
-
-      // Executive Summary Title
-      pdf.setTextColor(0, 0, 0);
-      pdf.setFontSize(18);
-      pdf.setFont("helvetica", "bold");
-      pdf.text("Executive Summary", margin, yPosition);
-      yPosition += 12;
-
-      // Key Metrics Overview
-      const boxWidth = (contentWidth - 7.5) / 4;
-      const boxHeight = 25;
-      
-      const keyMetrics = [
-        { 
-          label: "Total Users", 
-          value: dashboardStats.totalUsers.toLocaleString(),
-          color: [245, 184, 0],
-          symbol: "USERS"
-        },
-        { 
-          label: "Total Donations", 
-          value: currencyFormatter(dashboardStats.totalDonations),
-          color: [245, 184, 0],
-          symbol: "PHP"
-        },
-        { 
-          label: "Total Assets", 
-          value: currencyFormatter(dashboardStats.totalAssets),
-          color: [245, 184, 0],
-          symbol: "VALUE"
-        },
-        { 
-          label: "Pending Withdrawals", 
-          value: dashboardStats.pendingWithdrawals.toString(),
-          color: [245, 184, 0],
-          symbol: "QUEUE"
-        },
-      ];
-
-      keyMetrics.forEach((metric, index) => {
-        const x = margin + (boxWidth + 2.5) * index;
-        
-        // Gradient-like effect with color
-        pdf.setFillColor(metric.color[0], metric.color[1], metric.color[2]);
-        pdf.roundedRect(x, yPosition, boxWidth, boxHeight, 3, 3, "F");
-        
-        // Symbol/Badge
-        pdf.setFontSize(7);
-        pdf.setTextColor(20, 24, 35);
-        pdf.setFont("helvetica", "bold");
-        pdf.text(metric.symbol, x + boxWidth / 2, yPosition + 7, { align: "center" });
-        
-        // Label
-        pdf.setFontSize(7);
-        pdf.setTextColor(20, 24, 35);
+      const drawFooter = (pageNum: number, totalPages: number) => {
+        pdf.setDrawColor(228, 232, 240);
+        pdf.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+        pdf.setTextColor(mutedText[0], mutedText[1], mutedText[2]);
         pdf.setFont("helvetica", "normal");
-        pdf.text(metric.label, x + boxWidth / 2, yPosition + 14, { align: "center" });
-        
-        // Value
-        pdf.setFontSize(11);
+        pdf.setFontSize(8);
+        pdf.text(`Generated ${new Date().toLocaleString("en-US")} - KOLI Analytics`, margin, pageHeight - 7);
+        pdf.text(`Page ${pageNum} of ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: "right" });
+      };
+
+      const drawSectionTitle = (title: string, y: number) => {
+        pdf.setTextColor(20, 26, 40);
         pdf.setFont("helvetica", "bold");
-        pdf.setTextColor(20, 24, 35);
-        pdf.text(metric.value, x + boxWidth / 2, yPosition + 20, { align: "center" });
-      });
+        pdf.setFontSize(13);
+        pdf.text(title, margin, y);
+        pdf.setDrawColor(223, 229, 240);
+        pdf.line(margin, y + 2, pageWidth - margin, y + 2);
+      };
 
-      yPosition += boxHeight + 15;
-
-      // MANA Reward Overview Section
-      addSectionTitle("MANA Reward System Overview");
-      
-      const rewardBoxWidth = (contentWidth - 5) / 3;
-      const rewardBoxHeight = 22;
-      
-      const rewardMetrics = [
-        { 
-          label: "Total Mana Codes", 
-          value: manaRewardData.totalRewardsGenerated.toLocaleString(),
-          subtext: `${manaRewardData.activeRewards} Active`,
-          color: [245, 184, 0]
-        },
-        { 
-          label: "Total Claims", 
-          value: manaRewardData.totalRewardsClaimed.toLocaleString(),
-          subtext: `${manaRewardData.claimRate.toFixed(1)}% Claim Rate`,
-          color: [245, 184, 0]
-        },
-        { 
-          label: "Total Claimed Amount", 
-          value: currencyFormatter(manaRewardData.totalClaimAmount),
-          subtext: `Avg: ${currencyFormatter(manaRewardData.averageClaimAmount)}`,
-          color: [245, 184, 0]
-        },
-      ];
-
-      rewardMetrics.forEach((metric, index) => {
-        const x = margin + (rewardBoxWidth + 2.5) * index;
-        
-        pdf.setFillColor(250, 251, 252);
-        pdf.roundedRect(x, yPosition, rewardBoxWidth, rewardBoxHeight, 2, 2, "F");
-        
-        pdf.setDrawColor(metric.color[0], metric.color[1], metric.color[2]);
-        pdf.setLineWidth(0.5);
-        pdf.roundedRect(x, yPosition, rewardBoxWidth, rewardBoxHeight, 2, 2, "S");
-        
-        pdf.setFontSize(7);
-        pdf.setTextColor(100, 100, 100);
+      const drawMetricCard = (x: number, y: number, w: number, h: number, label: string, value: string) => {
+        pdf.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
+        pdf.roundedRect(x, y, w, h, 2, 2, "F");
+        pdf.setDrawColor(225, 231, 241);
+        pdf.roundedRect(x, y, w, h, 2, 2, "S");
+        pdf.setTextColor(mutedText[0], mutedText[1], mutedText[2]);
         pdf.setFont("helvetica", "normal");
-        pdf.text(metric.label, x + rewardBoxWidth / 2, yPosition + 5, { align: "center" });
-        
+        pdf.setFontSize(8);
+        pdf.text(label, x + 3, y + 6);
+        pdf.setTextColor(accent[0], accent[1], accent[2]);
+        pdf.setFont("helvetica", "bold");
         pdf.setFontSize(12);
-        pdf.setFont("helvetica", "bold");
-        pdf.setTextColor(0, 0, 0);
-        pdf.text(metric.value, x + rewardBoxWidth / 2, yPosition + 12, { align: "center" });
-        
-        pdf.setFontSize(6);
-        pdf.setFont("helvetica", "normal");
-        pdf.setTextColor(metric.color[0], metric.color[1], metric.color[2]);
-        pdf.text(metric.subtext, x + rewardBoxWidth / 2, yPosition + 18, { align: "center" });
-      });
+        pdf.text(value, x + 3, y + 14);
+      };
 
-      yPosition += rewardBoxHeight + 12;
-
-      // Key Insights Section
-      checkNewPage(50);
-      addSectionTitle("Key Insights & Recommendations");
-      
-      pdf.setFontSize(9);
+      // Page 1: Cover + report context
+      drawHeader("Comprehensive Performance Report", getTimeRangeLabel());
+      let y = bodyTop;
+      pdf.setTextColor(25, 32, 48);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(22);
+      pdf.text("Analytics Report", margin, y);
+      y += 9;
+      pdf.setTextColor(mutedText[0], mutedText[1], mutedText[2]);
       pdf.setFont("helvetica", "normal");
-      pdf.setTextColor(60, 60, 60);
-      
-      const insights = [
-        `User Growth: ${dashboardStats.totalUsers} registered users with ${manaRewardData.totalRewardsClaimed} reward claims`,
-        `Reward Performance: ${manaRewardData.claimRate.toFixed(1)}% claim rate with ${manaRewardData.activeRewards} active rewards`,
-        `Financial Overview: PHP ${dashboardStats.totalDonations.toLocaleString()} in donations, PHP ${dashboardStats.totalAssets.toLocaleString()} in assets`,
-        `Pending Actions: ${dashboardStats.pendingWithdrawals} withdrawal requests awaiting processing`,
-        `Average Claim: ${currencyFormatter(manaRewardData.averageClaimAmount)} per reward claim`,
+      pdf.setFontSize(10);
+      pdf.text("Operational and financial overview for administrative decision-making.", margin, y);
+      y += 12;
+
+      const contextItems = [
+        ["Report Date", new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })],
+        ["Data Range", getDateRangeText() || "N/A"],
+        ["Primary Metric", getChartTypeLabel()],
+        ["Time Window", getTimeRangeLabel()],
+        ["Aggregation", getAggregationNote()],
       ];
-      
-      insights.forEach((insight, idx) => {
-        checkNewPage(10);
-        const lines = pdf.splitTextToSize(`${idx + 1}. ${insight}`, contentWidth - 5);
-        pdf.text(lines, margin + 3, yPosition);
-        yPosition += lines.length * 5;
+      const contextW = contentWidth;
+      const rowH = 8;
+      pdf.setFillColor(250, 252, 255);
+      pdf.roundedRect(margin, y, contextW, rowH * contextItems.length + 6, 2, 2, "F");
+      pdf.setDrawColor(225, 231, 241);
+      pdf.roundedRect(margin, y, contextW, rowH * contextItems.length + 6, 2, 2, "S");
+      let rowY = y + 7;
+      contextItems.forEach(([k, v]) => {
+        pdf.setTextColor(95, 105, 125);
+        pdf.setFontSize(9);
+        pdf.text(`${k}:`, margin + 4, rowY);
+        pdf.setTextColor(30, 40, 60);
+        pdf.text(v, margin + 35, rowY);
+        rowY += rowH;
       });
+      y += rowH * contextItems.length + 18;
 
-      yPosition += 10;
+      drawSectionTitle("Executive Highlights", y);
+      y += 8;
+      const statW = (contentWidth - 8) / 2;
+      const statH = 20;
+      drawMetricCard(margin, y, statW, statH, "Total Users", dashboardStats.totalUsers.toLocaleString());
+      drawMetricCard(margin + statW + 8, y, statW, statH, "Total Donations", currencyFormatter(dashboardStats.totalDonations));
+      y += statH + 6;
+      drawMetricCard(margin, y, statW, statH, "Total Assets", currencyFormatter(dashboardStats.totalAssets));
+      drawMetricCard(margin + statW + 8, y, statW, statH, "Pending Withdrawals", String(dashboardStats.pendingWithdrawals));
 
-      // PAGE 2: Detailed Analytics
-      checkNewPage(100);
-      addSectionTitle(`${getChartTypeLabel()} - Detailed Analysis`);
-      
-      // Summary Statistics
-      const stats = calculateSummaryStats();
-      const statsBoxWidth = (contentWidth - 7.5) / 4;
-      const statsBoxHeight = 20;
-      
-      const statsData = [
-        { label: "Current Total", value: chartType === "users" ? stats.total.toString() : currencyFormatter(stats.total) },
-        { label: "Average", value: chartType === "users" ? Math.round(stats.average).toString() : currencyFormatter(stats.average) },
-        { label: "Highest", value: chartType === "users" ? stats.highest.toString() : currencyFormatter(stats.highest) },
-        { label: "Data Points", value: chartData.length.toString() },
-      ];
+      // Page 2: Selected metric + rewards intelligence
+      pdf.addPage();
+      drawHeader("Selected Metric Summary", getChartTypeLabel());
+      y = bodyTop;
+      drawSectionTitle("Metric Snapshot", y);
+      y += 8;
+      const boxW = (contentWidth - 12) / 3;
+      drawMetricCard(margin, y, boxW, 20, "Current", metricFormat(currentValue));
+      drawMetricCard(margin + boxW + 6, y, boxW, 20, "Period Total", metricFormat(summary.total));
+      drawMetricCard(margin + (boxW + 6) * 2, y, boxW, 20, "Average", metricFormat(Math.round(summary.average)));
+      y += 26;
+      drawMetricCard(margin, y, boxW, 20, "Highest", metricFormat(summary.highest));
+      drawMetricCard(margin + boxW + 6, y, boxW, 20, "Lowest", metricFormat(summary.lowest));
+      drawMetricCard(
+        margin + (boxW + 6) * 2,
+        y,
+        boxW,
+        20,
+        "Trend",
+        `${trend >= 0 ? "+" : ""}${trend.toFixed(1)}%`
+      );
+      y += 30;
 
-      statsData.forEach((stat, index) => {
-        const x = margin + (statsBoxWidth + 2.5) * index;
-        
-        pdf.setFillColor(245, 247, 250);
-        pdf.roundedRect(x, yPosition, statsBoxWidth, statsBoxHeight, 2, 2, "F");
-        
-        pdf.setDrawColor(220, 220, 220);
-        pdf.setLineWidth(0.3);
-        pdf.roundedRect(x, yPosition, statsBoxWidth, statsBoxHeight, 2, 2, "S");
-        
-        pdf.setFontSize(7);
-        pdf.setTextColor(100, 100, 100);
-        pdf.setFont("helvetica", "normal");
-        pdf.text(stat.label, x + statsBoxWidth / 2, yPosition + 6, { align: "center" });
-        
-        pdf.setFontSize(10);
-        pdf.setFont("helvetica", "bold");
-        pdf.setTextColor(0, 0, 0);
-        pdf.text(stat.value, x + statsBoxWidth / 2, yPosition + 14, { align: "center" });
-      });
+      drawSectionTitle("MANA Reward Intelligence", y);
+      y += 8;
+      const rewardW = (contentWidth - 12) / 3;
+      drawMetricCard(margin, y, rewardW, 18, "Codes Generated", manaRewardData.totalRewardsGenerated.toLocaleString());
+      drawMetricCard(margin + rewardW + 6, y, rewardW, 18, "Total Claims", manaRewardData.totalRewardsClaimed.toLocaleString());
+      drawMetricCard(margin + (rewardW + 6) * 2, y, rewardW, 18, "Claim Rate", `${manaRewardData.claimRate.toFixed(1)}%`);
+      y += 22;
+      drawMetricCard(margin, y, rewardW, 18, "Claim Amount", currencyFormatter(manaRewardData.totalClaimAmount));
+      drawMetricCard(margin + rewardW + 6, y, rewardW, 18, "Active Rewards", manaRewardData.activeRewards.toLocaleString());
+      drawMetricCard(margin + (rewardW + 6) * 2, y, rewardW, 18, "Expired Rewards", manaRewardData.expiredRewards.toLocaleString());
+      y += 25;
 
-      yPosition += statsBoxHeight + 12;
-
-      // Chart description
-      checkNewPage(20);
-      pdf.setFont("helvetica", "normal");
+      pdf.setTextColor(mutedText[0], mutedText[1], mutedText[2]);
       pdf.setFontSize(9);
-      pdf.setTextColor(80, 80, 80);
-      const description = `This section provides detailed analysis of ${getChartTypeLabel().toLowerCase()} over ${getTimeRangeLabel().toLowerCase()}. ` +
-        `The visualizations below show trends, patterns, and distribution across different time periods.`;
-      const splitDescription = pdf.splitTextToSize(description, contentWidth);
-      pdf.text(splitDescription, margin, yPosition);
-      yPosition += (splitDescription.length * 5) + 8;
+      const summaryText = `Topline: ${manaRewardData.totalRewardsClaimed.toLocaleString()} claims with an average claim of ${currencyFormatter(manaRewardData.averageClaimAmount)}.`;
+      pdf.text(pdf.splitTextToSize(summaryText, contentWidth), margin, y);
 
-      // Capture charts as image
+      // Page 3+: Visual analytics (paginated image slices)
+      pdf.addPage();
+      drawHeader("Visual Analytics", `${getChartTypeLabel()} - ${getTimeRangeLabel()}`);
       const canvas = await html2canvas(reportsRef.current, {
         scale: 2,
         backgroundColor: "#ffffff",
         logging: false,
       });
-
       const imgData = canvas.toDataURL("image/png");
       const imgWidth = contentWidth;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      checkNewPage(Math.min(imgHeight, 100));
+      const chartTop = bodyTop;
+      const chartUsableHeight = bodyBottom - chartTop;
 
-      pdf.addImage(imgData, "PNG", margin, yPosition, imgWidth, imgHeight);
-      yPosition += imgHeight + 10;
+      let remainingHeight = imgHeight;
+      let offsetY = 0;
+      while (remainingHeight > 0) {
+        pdf.addImage(imgData, "PNG", margin, chartTop - offsetY, imgWidth, imgHeight);
+        remainingHeight -= chartUsableHeight;
+        offsetY += chartUsableHeight;
+        if (remainingHeight > 0) {
+          pdf.addPage();
+          drawHeader("Visual Analytics (cont.)", `${getChartTypeLabel()} - ${getTimeRangeLabel()}`);
+        }
+      }
 
-      // Final Notes Section
-      checkNewPage(40);
-      addSectionTitle("Report Notes");
-      
-      pdf.setFontSize(8);
+      // Final page notes
+      pdf.addPage();
+      drawHeader("Methodology & Notes", "Data Quality and Interpretation");
+      y = bodyTop;
+      drawSectionTitle("Important Notes", y);
+      y += 10;
+      pdf.setTextColor(70, 78, 96);
       pdf.setFont("helvetica", "normal");
-      pdf.setTextColor(100, 100, 100);
-      
+      pdf.setFontSize(10);
       const notes = [
-        "This report is automatically generated based on real-time data from the KOLI Admin system.",
-        "All currency values are displayed in Philippine Peso (PHP) unless otherwise specified.",
-        "Reward claim rates are calculated as total claims divided by total rewards generated.",
-        "For questions or clarifications, please contact the system administrator.",
-        `Report generated on: ${new Date().toLocaleString("en-US")}`,
+        "Data is generated from real-time Firestore records at the time of export.",
+        "Donations include approved/active records for financial consistency.",
+        "Displayed values may vary based on selected time range aggregation.",
+        "This report is intended for internal operational decision-making.",
       ];
-      
       notes.forEach((note, idx) => {
-        const lines = pdf.splitTextToSize(`${idx + 1}. ${note}`, contentWidth - 5);
-        pdf.text(lines, margin + 3, yPosition);
-        yPosition += lines.length * 4.5;
+        const lines = pdf.splitTextToSize(`${idx + 1}. ${note}`, contentWidth);
+        pdf.text(lines, margin, y);
+        y += lines.length * 5 + 2;
       });
 
-      // Update all page footers with correct total pages
-      const totalPages = pageNumber;
+      const totalPages = pdf.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         pdf.setPage(i);
-        addPageFooter(i, totalPages.toString());
+        drawFooter(i, totalPages);
       }
 
       pdf.save(`KOLI-Comprehensive-Report-${new Date().toISOString().split("T")[0]}.pdf`);
@@ -666,15 +586,37 @@ const Reports = () => {
 
       <div ref={reportsRef} className="space-y-3 sm:space-y-6 pb-4">
         {loading ? (
-          <div className="flex justify-center items-center h-[300px]">
-            <p className="text-muted-foreground">Loading charts...</p>
-          </div>
+          <PageLoading className="min-h-[300px]" />
         ) : chartData.length === 0 ? (
           <div className="flex justify-center items-center h-[300px]">
             <p className="text-muted-foreground">No data available for the selected time range</p>
           </div>
         ) : (
           <>
+        <Card className="overflow-hidden">
+          <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0">
+            {(() => {
+              const stats = calculateSummaryStats();
+              const trend = calculateTrend();
+              const formatValue = (value: number) =>
+                chartType === "users" ? value.toLocaleString() : currencyFormatter(value);
+              const currentValue = preparedChartData[preparedChartData.length - 1]?.value || 0;
+              const items = [
+                { label: "Current", value: formatValue(currentValue) },
+                { label: "Period Total", value: formatValue(stats.total) },
+                { label: "Average", value: formatValue(Math.round(stats.average)) },
+                { label: "Trend", value: `${trend >= 0 ? "+" : ""}${trend.toFixed(1)}%` },
+              ];
+
+              return items.map((item) => (
+                <div key={item.label} className="p-4 sm:p-5 bg-muted/10">
+                  <p className="text-xs text-muted-foreground">{item.label}</p>
+                  <p className="text-xl sm:text-3xl font-bold mt-1">{item.value}</p>
+                </div>
+              ));
+            })()}
+          </div>
+        </Card>
       
         {/* Line Chart */}
         <Card className="overflow-hidden">
@@ -686,44 +628,33 @@ const Reports = () => {
             <ChartContainer config={chartConfig} className="h-[240px] sm:h-[300px] w-full">
                   <LineChart
                 accessibilityLayer
-                data={(() => {
-                  const mappedData = chartData.map((d) => ({
-                    date: d.date,
-                    dateTime: d.date.getTime(),
-                    value: chartType === "users" ? (d.count || 0) : (d.amount || 0),
-                  }));
-                  console.log(`📊 Line Chart mapped data (first  3):`, mappedData.slice(0, 3));
-                  return mappedData;
-                })()}
+                data={preparedChartData}
                 margin={{
+                  top: 10,
                   left: isMobile ? 0 : 12,
-                  right: isMobile ? 0 : 12,
-                  bottom: 8,
+                  right: isMobile ? 14 : 28,
+                  bottom: 12,
                 }}              >
                 <CartesianGrid vertical={false} />
                 <XAxis
-                  dataKey="dateTime"
+                  dataKey="date"
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
                   interval={mobileXAxisInterval}
                   minTickGap={isMobile ? 56 : 32}
+                  padding={{ left: 8, right: 8 }}
                   tick={{ fontSize: isMobile ? 9 : 12 }}
                   tickFormatter={(value) => getMobileFriendlyDateLabel(value)}
                 />
                 <YAxis
-                  width={isMobile ? 24 : 60}
+                  width={isMobile ? 30 : 72}
                   hide={isMobile}
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
-                  domain={[0, 'dataMax + 1']}
-                  allowDataOverflow={false}
-                  tickFormatter={(value) =>
-                    chartType === "users"
-                      ? String(Math.round(value))
-                      : currencyFormatter(value)
-                  }
+                  domain={[0, (maxValue: number) => Math.max(1, Math.ceil(maxValue * 1.15))]}
+                  tickFormatter={yAxisTickFormatter}
                 />
                 <ChartTooltip
                   cursor={false}
@@ -731,10 +662,10 @@ const Reports = () => {
                 />
                 <Line
                   dataKey="value"
-                  type="natural"
+                  type="monotoneX"
                   stroke={getChartColor()}
                   strokeWidth={2}
-                  dot={chartData.length <= 30 ? {
+                  dot={preparedChartData.length <= 30 ? {
                     fill: getChartColor(),
                   } : false}
                   activeDot={{
@@ -756,45 +687,34 @@ const Reports = () => {
             <ChartContainer config={chartConfig} className="h-[240px] sm:h-[300px] w-full">
                   <BarChart
                 accessibilityLayer
-                data={(() => {
-                  const mappedData = chartData.map((d) => ({
-                    date: d.date,
-                    dateTime: d.date.getTime(),
-                    value: chartType === "users" ? (d.count || 0) : (d.amount || 0),
-                  }));
-                  console.log(`📊 Bar Chart mapped data (first 3):`, mappedData.slice(0, 3));
-                  return mappedData;
-                })()}
+                data={preparedChartData}
                 margin={{
+                  top: 10,
                   left: isMobile ? 0 : 12,
-                  right: isMobile ? 0 : 12,
-                  bottom: 8,
+                  right: isMobile ? 14 : 28,
+                  bottom: 12,
                 }}
               >
                 <CartesianGrid vertical={false} />
                 <XAxis
-                  dataKey="dateTime"
+                  dataKey="date"
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
                   interval={mobileXAxisInterval}
                   minTickGap={isMobile ? 56 : 32}
+                  padding={{ left: 8, right: 8 }}
                   tick={{ fontSize: isMobile ? 9 : 12 }}
                   tickFormatter={(value) => getMobileFriendlyDateLabel(value)}
                 />
                 <YAxis
-                  width={isMobile ? 24 : 60}
+                  width={isMobile ? 30 : 72}
                   hide={isMobile}
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
-                  domain={[0, 'dataMax + 1']}
-                  allowDataOverflow={false}
-                  tickFormatter={(value) =>
-                    chartType === "users"
-                      ? String(Math.round(value))
-                      : currencyFormatter(value)
-                  }
+                  domain={[0, (maxValue: number) => Math.max(1, Math.ceil(maxValue * 1.15))]}
+                  tickFormatter={yAxisTickFormatter}
                 />
                 <ChartTooltip
                   content={<CustomChartTooltip currencyFormatter={currencyFormatter} chartType={chartType} />}
@@ -805,7 +725,7 @@ const Reports = () => {
           </CardContent>
         </Card>
 
-        {/* Pie Chart */}
+        {/* Distribution Radial Chart */}
         <Card className="flex flex-col">
           <CardHeader className="items-center pb-0">
             <CardTitle className="text-base sm:text-lg md:text-xl">Distribution Chart - {getChartLabel()}</CardTitle>
@@ -813,128 +733,28 @@ const Reports = () => {
           </CardHeader>
           <CardContent className="flex-1 pb-0">
             <ChartContainer
-              config={(() => {
-                // Get non-zero incremental values grouped by month
-                const monthlyData = new Map<string, number>();
-                
-                for (let i = 0; i < chartData.length; i++) {
-                  const currentValue = chartType === "users" ? (chartData[i].count || 0) : (chartData[i].amount || 0);
-                  const previousValue = i > 0 
-                    ? (chartType === "users" ? (chartData[i - 1].count || 0) : (chartData[i - 1].amount || 0))
-                    : 0;
-                  const increment = currentValue - previousValue;
-                  
-                  if (increment > 0) {
-                    const monthKey = new Intl.DateTimeFormat("en-US", {
-                      month: "short",
-                      year: "numeric",
-                    }).format(chartData[i].date);
-                    
-                    monthlyData.set(monthKey, (monthlyData.get(monthKey) || 0) + increment);
-                  }
-                }
-                
-                // Build config dynamically
-                const config: ChartConfig = { value: { label: getChartLabel() } };
-                Array.from(monthlyData.entries())
-                  .sort((a, b) => b[1] - a[1])
-                  .slice(0, 8)
-                  .forEach(([month], idx) => {
-                    config[`month${idx}`] = {
-                      label: month,
-                      color: `var(--chart-${(idx % 5) + 1})`,
-                    };
-                  });
-                
-                return config;
-              })()}
+              config={distributionChartConfig}
               className="mx-auto aspect-square max-h-[240px] sm:max-h-[300px]"
             >
-              <PieChart>
+              <RadialBarChart
+                data={distributionData}
+                startAngle={90}
+                endAngle={-270}
+                innerRadius={28}
+                outerRadius={108}
+                barSize={12}
+              >
                 <ChartTooltip
                   cursor={false}
-                  content={<ChartTooltipContent hideLabel formatter={(value) =>
-                    chartType === "users"
-                      ? String(value)
-                      : currencyFormatter(value as number)
-                  } />}
+                  content={<CustomChartTooltip currencyFormatter={currencyFormatter} chartType={chartType} />}
                 />
-                <Pie
-                  data={(() => {
-                    // Get non-zero incremental values grouped by month
-                    const monthlyData = new Map<string, number>();
-                    
-                    for (let i = 0; i < chartData.length; i++) {
-                      const currentValue = chartType === "users" ? (chartData[i].count || 0) : (chartData[i].amount || 0);
-                      const previousValue = i > 0 
-                        ? (chartType === "users" ? (chartData[i - 1].count || 0) : (chartData[i - 1].amount || 0))
-                        : 0;
-                      const increment = currentValue - previousValue;
-                      
-                      if (increment > 0) {
-                        const monthKey = new Intl.DateTimeFormat("en-US", {
-                          month: "short",
-                          year: "numeric",
-                        }).format(chartData[i].date);
-                        
-                        monthlyData.set(monthKey, (monthlyData.get(monthKey) || 0) + increment);
-                      }
-                    }
-                    
-                    // Convert to array and take top 8 entries
-                    return Array.from(monthlyData.entries())
-                      .sort((a, b) => b[1] - a[1])
-                      .slice(0, 8)
-                      .map(([month, value], idx) => ({
-                        month: month,
-                        value: value,
-                        fill: `var(--chart-${(idx % 5) + 1})`,
-                      }));
-                  })()}
-                  dataKey="value"
-                  nameKey="month"
-                  innerRadius={60}
-                  strokeWidth={5}
-                >
-                  <Label
-                    content={({ viewBox }) => {
-                      if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                        const stats = calculateSummaryStats();
-                        return (
-                          <text
-                            x={viewBox.cx}
-                            y={viewBox.cy}
-                            textAnchor="middle"
-                            dominantBaseline="middle"
-                          >
-                            <tspan
-                              x={viewBox.cx}
-                              y={viewBox.cy}
-                              className="fill-foreground text-xl sm:text-3xl font-bold"
-                            >
-                              {chartType === "users"
-                                ? (isMobile && stats.total >= 1000
-                                    ? `${Math.round(stats.total / 1000)}k`
-                                    : stats.total.toLocaleString())
-                                : (isMobile && stats.total >= 1000
-                                    ? `₱${Math.round(stats.total / 1000)}k`
-                                    : currencyFormatter(stats.total).replace("PHP ", "₱"))
-                              }
-                            </tspan>
-                            <tspan
-                              x={viewBox.cx}
-                              y={(viewBox.cy || 0) + 24}
-                              className="fill-muted-foreground"
-                            >
-                              {getChartLabel()}
-                            </tspan>
-                          </text>
-                        );
-                      }
-                    }}
-                  />
-                </Pie>
-              </PieChart>
+                <PolarGrid gridType="circle" />
+                <RadialBar dataKey="value" background={{ fill: "hsl(var(--muted))" }} cornerRadius={6}>
+                  {distributionData.map((entry, index) => (
+                    <Cell key={`dist-cell-${entry.key}-${index}`} fill={entry.fill} />
+                  ))}
+                </RadialBar>
+              </RadialBarChart>
             </ChartContainer>
           </CardContent>
           <div className="flex flex-col gap-2 text-sm p-4 sm:p-6 pt-2 sm:pt-3">

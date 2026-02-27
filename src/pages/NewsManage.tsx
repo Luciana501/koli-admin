@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { IconArrowLeft } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,6 +19,7 @@ import {
   subscribeToNewsPosts,
   updateNewsPost,
 } from "@/services/firestore";
+import PageLoading from "@/components/PageLoading";
 
 const toDateTimeLocalValue = (isoValue: string) => {
   if (!isoValue) return "";
@@ -39,6 +42,7 @@ const formatPostedAt = (isoValue: string) => {
 };
 
 const NewsManage = () => {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [posts, setPosts] = useState<NewsPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -150,9 +154,20 @@ const NewsManage = () => {
     }
   };
 
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/news");
+  };
+
   return (
     <div className="space-y-6">
       <div>
+        <Button variant="outline" size="icon" onClick={handleBack} className="mb-3" aria-label="Go back">
+          <IconArrowLeft className="h-4 w-4" />
+        </Button>
         <h1 className="text-2xl font-bold">News List / Manage</h1>
         <p className="text-muted-foreground">View, edit, and delete existing news posts.</p>
       </div>
@@ -165,7 +180,7 @@ const NewsManage = () => {
 
         <div className="p-4 space-y-3">
           {loading ? (
-            <p className="text-muted-foreground">Loading news posts...</p>
+            <PageLoading className="min-h-[16rem]" />
           ) : posts.length === 0 ? (
             <p className="text-muted-foreground">No news posts yet.</p>
           ) : (

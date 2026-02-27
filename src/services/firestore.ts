@@ -282,16 +282,13 @@ export const fetchReportAnalytics = async (type: "users" | "donations" | "assets
         console.log(`📊 First 3 entries:`, entries);
       }
 
-      // Build result with aggregated date range
+      // Build non-cumulative result so each bucket represents only that
+      // day's/week's/month's registrations.
       const result: ReportData[] = [];
-      let cumulativeCount = 0;
-      
       allDates.forEach((dateKey) => {
-        const incrementValue = dataMap.get(dateKey) || 0;
-        cumulativeCount += incrementValue;
         result.push({
           date: createDateFromString(dateKey),
-          count: cumulativeCount,
+          count: dataMap.get(dateKey) || 0,
         });
       });
 
@@ -301,45 +298,50 @@ export const fetchReportAnalytics = async (type: "users" | "donations" | "assets
       console.log(`📊 Last 3 results:`, result.slice(-3).map(r => ({ date: r.date.toISOString(), count: r.count, isValidDate: !isNaN(r.date.getTime()) })));
       return result;
     } else if (type === "donations") {
-      // Get total donations over time
-      const usersRef = collection(db, "members");
-      const snapshot = await getDocs(usersRef);
-      
+      // Get donation submissions over time from donationContracts.
+      // Use approved/active only to align with financial reporting.
+      const donationsRef = collection(db, "donationContracts");
+      const snapshot = await getDocs(donationsRef);
+
       const dataMap = new Map<string, number>();
-      
+
       snapshot.docs.forEach((doc) => {
         const data = doc.data();
         let createdAt: Date | null = null;
-        
-        // Handle different date formats
+
         if (data.createdAt) {
-          if (typeof data.createdAt.toDate === 'function') {
+          if (typeof data.createdAt.toDate === "function") {
             createdAt = data.createdAt.toDate();
           } else if (data.createdAt instanceof Date) {
             createdAt = data.createdAt;
-          } else if (typeof data.createdAt === 'string') {
+          } else if (typeof data.createdAt === "string") {
             createdAt = new Date(data.createdAt);
           }
         }
-        
-        const donationAmount = data.donationAmount || 0;
-        
-        if (createdAt && createdAt >= startDate && createdAt <= now) {
-          const dateKey = createdAt.toISOString().split('T')[0];
+
+        const status = (data.status || "").toString().toLowerCase();
+        const isIncludedStatus = status === "approved" || status === "active";
+        const donationAmount = Number(data.donationAmount || 0);
+
+        if (
+          createdAt &&
+          createdAt >= startDate &&
+          createdAt <= endDate &&
+          isIncludedStatus &&
+          Number.isFinite(donationAmount)
+        ) {
+          const dateKey = createdAt.toISOString().split("T")[0];
           const aggKey = getAggregationKey(dateKey, aggLevel);
           dataMap.set(aggKey, (dataMap.get(aggKey) || 0) + donationAmount);
         }
       });
 
-      // Build result with aggregated date range
+      // Build non-cumulative result so each bucket represents only that day's/week's/month's donations.
       const result: ReportData[] = [];
-      let cumulativeAmount = 0;
-      
       allDates.forEach((dateKey) => {
-        cumulativeAmount += dataMap.get(dateKey) || 0;
         result.push({
           date: createDateFromString(dateKey),
-          amount: cumulativeAmount,
+          amount: dataMap.get(dateKey) || 0,
         });
       });
 
@@ -482,6 +484,9 @@ export const subscribeToUsers = (callback: (users: User[]) => void) => {
         name: data.name || undefined,
         role: data.role || undefined,
         status: data.status || undefined,
+        suspendedAt: data.suspendedAt ? toIsoString(data.suspendedAt) : undefined,
+        suspendedBy: data.suspendedBy || undefined,
+        suspensionReason: data.suspensionReason || undefined,
         uid: data.uid || undefined,
         leaderId: data.leaderId || undefined,
         leaderName: data.leaderName || undefined,
@@ -729,6 +734,9 @@ export const fetchUsers = async (): Promise<User[]> => {
         kycRejectionReason: data.kycRejectionReason || undefined,
         role: data.role || undefined,
         status: data.status || undefined,
+        suspendedAt: data.suspendedAt ? toIsoString(data.suspendedAt) : undefined,
+        suspendedBy: data.suspendedBy || undefined,
+        suspensionReason: data.suspensionReason || undefined,
         uid: data.uid || undefined,
         leaderId: data.leaderId || undefined,
         leaderName: data.leaderName || undefined,
@@ -764,6 +772,9 @@ export const fetchUserById = async (userId: string): Promise<User | null> => {
         kycRejectionReason: data.kycRejectionReason || undefined,
         role: data.role || undefined,
         status: data.status || undefined,
+        suspendedAt: data.suspendedAt ? toIsoString(data.suspendedAt) : undefined,
+        suspendedBy: data.suspendedBy || undefined,
+        suspensionReason: data.suspensionReason || undefined,
         uid: data.uid || undefined,
         leaderId: data.leaderId || undefined,
         leaderName: data.leaderName || undefined,
@@ -1185,6 +1196,15 @@ export const subscribeToDonations = (callback: (donations: Donation[]) => void) 
         userEmail,
         userPhone,
         donationAmount: data.donationAmount || 0,
+        verifiedAmount:
+          typeof data.verifiedAmount === "number" ? data.verifiedAmount : null,
+        discrepancyAmount:
+          typeof data.discrepancyAmount === "number" ? data.discrepancyAmount : null,
+        hasDiscrepancy: Boolean(data.hasDiscrepancy),
+        reviewOutcome: (data.reviewOutcome as Donation["reviewOutcome"]) || undefined,
+        reviewNote: data.reviewNote || "",
+        reviewedAt: data.reviewedAt || null,
+        reviewedBy: data.reviewedBy || null,
         paymentMethod: data.paymentMethod || "",
         receiptPath: data.receiptPath || "",
         receiptURL,
@@ -1219,7 +1239,11 @@ export const subscribeToDonations = (callback: (donations: Donation[]) => void) 
 export const updateDonationStatus = async (
   donationId: string,
   status: "approved" | "rejected",
-  rejectionReason?: string
+  options?: {
+    rejectionReason?: string;
+    verifiedAmount?: number;
+    reviewNote?: string;
+  }
 ): Promise<void> => {
   try {
     const donationRef = doc(db, "donationContracts", donationId);
@@ -1237,19 +1261,42 @@ export const updateDonationStatus = async (
     };
 
     if (status === "rejected") {
-      const trimmedReason = rejectionReason?.trim() || "";
+      const trimmedReason = options?.rejectionReason?.trim() || "";
       if (!trimmedReason) {
         throw new Error("Rejection reason is required");
       }
       updateData.rejectionReason = trimmedReason;
+      updateData.verifiedAmount = null;
+      updateData.discrepancyAmount = null;
+      updateData.hasDiscrepancy = false;
+      updateData.reviewOutcome = "rejected";
+      updateData.reviewNote = trimmedReason;
+      updateData.reviewedAt = new Date().toISOString();
+      updateData.reviewedBy = auth.currentUser?.uid || "";
     }
 
     // If approved, set approval metadata
     if (status === "approved") {
       const now = new Date();
+      const declaredAmount = Number(donationData.donationAmount || 0);
+      const requestedVerified = Number(options?.verifiedAmount ?? declaredAmount);
+      const safeVerifiedAmount =
+        Number.isFinite(requestedVerified) && requestedVerified >= 0
+          ? requestedVerified
+          : declaredAmount;
+      const discrepancyAmount = declaredAmount - safeVerifiedAmount;
+
       updateData.approvedAt = now.toISOString();
       updateData.donationStartDate = now.toISOString();
       updateData.rejectionReason = "";
+      updateData.verifiedAmount = safeVerifiedAmount;
+      updateData.discrepancyAmount = discrepancyAmount;
+      updateData.hasDiscrepancy = discrepancyAmount !== 0;
+      updateData.reviewOutcome =
+        discrepancyAmount === 0 ? "approved_exact" : "approved_adjusted";
+      updateData.reviewNote = options?.reviewNote?.trim() || "";
+      updateData.reviewedAt = now.toISOString();
+      updateData.reviewedBy = auth.currentUser?.uid || "";
       
       // Calculate contract end date (30 days from now)
       const endDate = new Date(now);
@@ -1260,17 +1307,27 @@ export const updateDonationStatus = async (
     // Update donation status
     await updateDoc(donationRef, updateData);
     
-    // If approved, update user's donationAmount
-    if (status === "approved" && donationData.userId && donationData.donationAmount) {
+    // If approved, update user's donationAmount using verified amount if present
+    if (status === "approved" && donationData.userId) {
+      const declaredAmount = Number(donationData.donationAmount || 0);
+      const requestedVerified = Number(options?.verifiedAmount ?? declaredAmount);
+      const safeVerifiedAmount =
+        Number.isFinite(requestedVerified) && requestedVerified >= 0
+          ? requestedVerified
+          : declaredAmount;
+      if (safeVerifiedAmount <= 0) {
+        return;
+      }
+
       const userRef = doc(db, "members", donationData.userId);
       const userDoc = await getDoc(userRef);
       
       if (userDoc.exists()) {
         const userData = userDoc.data();
         const currentDonationAmount = userData.donationAmount || 0;
-        const newDonationAmount = currentDonationAmount + donationData.donationAmount;
+        const newDonationAmount = currentDonationAmount + safeVerifiedAmount;
         
-        console.log(`Updating user ${donationData.userId} donation: ${currentDonationAmount} + ${donationData.donationAmount} = ${newDonationAmount}`);
+        console.log(`Updating user ${donationData.userId} donation: ${currentDonationAmount} + ${safeVerifiedAmount} = ${newDonationAmount}`);
         
         await updateDoc(userRef, {
           donationAmount: newDonationAmount,
@@ -1346,6 +1403,10 @@ export const subscribeToKYC = (callback: (users: User[]) => void) => {
         kycStatus: data.kycStatus || undefined,
         kycSubmittedAt: data.kycSubmittedAt || undefined,
         kycRejectionReason: data.kycRejectionReason || undefined,
+        leaderId: data.leaderId || undefined,
+        leaderName: data.leaderName || undefined,
+        platformCode: data.platformCode || undefined,
+        platformCodeId: data.platformCodeId || undefined,
         kycManualData: normalizedKycManualData,
         kycImageUrl: kycImageUrl,
       };
@@ -1876,6 +1937,42 @@ export const updateUser = async (
     await updateDoc(userRef, updatePayload);
   } catch (error) {
     console.error("Error updating user:", error);
+    throw error;
+  }
+};
+
+export const suspendUserAccount = async (userId: string, reason?: string): Promise<void> => {
+  try {
+    const userRef = doc(db, "members", userId);
+    const nowIso = new Date().toISOString();
+
+    await updateDoc(userRef, {
+      status: "suspended",
+      suspendedAt: nowIso,
+      suspendedBy: auth.currentUser?.uid || "admin",
+      suspensionReason: (reason || "").trim() || null,
+      updatedAt: nowIso,
+    });
+  } catch (error) {
+    console.error("Error suspending user account:", error);
+    throw error;
+  }
+};
+
+export const unsuspendUserAccount = async (userId: string): Promise<void> => {
+  try {
+    const userRef = doc(db, "members", userId);
+    const nowIso = new Date().toISOString();
+
+    await updateDoc(userRef, {
+      status: "active",
+      suspendedAt: null,
+      suspendedBy: null,
+      suspensionReason: null,
+      updatedAt: nowIso,
+    });
+  } catch (error) {
+    console.error("Error unsuspending user account:", error);
     throw error;
   }
 };

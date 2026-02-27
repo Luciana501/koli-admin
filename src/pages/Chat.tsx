@@ -1,9 +1,31 @@
-import React, { useState, useEffect, useRef } from "react";
+﻿import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { subscribeToChatMessages, sendChatMessage, markMessagesAsRead, uploadChatFiles, ChatMessage } from "@/services/chat";
+import {
+  subscribeToChatMessages,
+  sendChatMessage,
+  markMessagesAsRead,
+  uploadChatFiles,
+  ChatMessage,
+  extractChatMediaItems,
+  getChatMessageSearchableText,
+} from "@/services/chat";
 import { auth } from "@/lib/firebase";
-import { IconSend, IconArrowLeft, IconPaperclip, IconX, IconFile, IconDownload, IconCornerDownRight } from "@tabler/icons-react";
+import {
+  IconSend,
+  IconArrowLeft,
+  IconPaperclip,
+  IconX,
+  IconFile,
+  IconDownload,
+  IconCornerDownRight,
+  IconSearch,
+  IconChevronUp,
+  IconChevronDown,
+  IconPhoto,
+  IconDotsVertical,
+} from "@tabler/icons-react";
+import PageLoading from "@/components/PageLoading";
 
 const Chat = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -13,9 +35,17 @@ const Chat = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [imageModal, setImageModal] = useState<{ url: string; name: string } | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [matchedMessageIds, setMatchedMessageIds] = useState<string[]>([]);
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const [showSearchPanel, setShowSearchPanel] = useState(false);
+  const [showMediaModal, setShowMediaModal] = useState(false);
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
   const { adminType } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -42,6 +72,50 @@ const Chat = () => {
     // Scroll to bottom when new messages arrive
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const mediaItems = extractChatMediaItems(messages);
+  const activeMatchedMessageId = matchedMessageIds[activeMatchIndex];
+
+  const scrollToMessage = (messageId: string) => {
+    const target = messageRefs.current[messageId];
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  useEffect(() => {
+    const normalized = searchTerm.trim().toLowerCase();
+    if (!normalized) {
+      setMatchedMessageIds([]);
+      setActiveMatchIndex(0);
+      return;
+    }
+
+    const nextMatches = messages
+      .filter((message) => getChatMessageSearchableText(message).toLowerCase().includes(normalized))
+      .map((message) => message.id);
+
+    setMatchedMessageIds(nextMatches);
+    setActiveMatchIndex(0);
+  }, [messages, searchTerm]);
+
+  useEffect(() => {
+    if (!activeMatchedMessageId) return;
+    scrollToMessage(activeMatchedMessageId);
+  }, [activeMatchedMessageId]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!toolsMenuRef.current) return;
+      if (!toolsMenuRef.current.contains(event.target as Node)) {
+        setShowToolsMenu(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -76,6 +150,16 @@ const Chat = () => {
       console.error('Error downloading file:', error);
       window.open(url, '_blank');
     }
+  };
+
+  const jumpToPreviousMatch = () => {
+    if (matchedMessageIds.length === 0) return;
+    setActiveMatchIndex((prev) => (prev - 1 + matchedMessageIds.length) % matchedMessageIds.length);
+  };
+
+  const jumpToNextMatch = () => {
+    if (matchedMessageIds.length === 0) return;
+    setActiveMatchIndex((prev) => (prev + 1) % matchedMessageIds.length);
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -177,13 +261,7 @@ const Chat = () => {
   };
 
   if (loading) {
-    return (
-      <div className="p-2 sm:p-4">
-        <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">Loading chat...</p>
-        </div>
-      </div>
-    );
+    return <PageLoading className="min-h-[16rem]" />;
   }
 
   return (
@@ -204,6 +282,43 @@ const Chat = () => {
       </div>
 
       <div className="flex-1 bg-card border border-border rounded-lg flex flex-col overflow-hidden">
+        <div className="border-b border-border p-3 sm:p-4 flex justify-end" ref={toolsMenuRef}>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowToolsMenu((prev) => !prev)}
+              className="p-2 rounded-md border border-input hover:bg-accent"
+              title="Chat tools"
+            >
+              <IconDotsVertical className="h-4 w-4" />
+            </button>
+            {showToolsMenu && (
+              <div className="absolute right-0 mt-2 w-48 rounded-md border border-border bg-popover shadow-md z-10 p-1 animate-in fade-in zoom-in-95 slide-in-from-top-1 duration-150">
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2 rounded hover:bg-accent text-sm"
+                  onClick={() => {
+                    setShowSearchPanel((prev) => !prev);
+                    setShowToolsMenu(false);
+                  }}
+                >
+                  {showSearchPanel ? "Hide Search" : "Search Conversation"}
+                </button>
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2 rounded hover:bg-accent text-sm"
+                  onClick={() => {
+                    setShowMediaModal(true);
+                    setShowToolsMenu(false);
+                  }}
+                >
+                  Media Files
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Messages area */}
         <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
           {messages.length === 0 ? (
@@ -219,7 +334,12 @@ const Chat = () => {
               return (
                 <div
                   key={msg.id}
-                  className={`flex flex-col ${isOwnMessage ? "items-end" : "items-start"}`}
+                  ref={(element) => {
+                    messageRefs.current[msg.id] = element;
+                  }}
+                  className={`flex flex-col ${isOwnMessage ? "items-end" : "items-start"} ${
+                    activeMatchedMessageId === msg.id ? "ring-2 ring-primary/60 rounded-lg p-1" : ""
+                  }`}
                 >
                   {/* Header */}
                   <div className={`flex items-center gap-2 mb-1 ${isOwnMessage ? "flex-row-reverse" : ""}`}>
@@ -232,7 +352,7 @@ const Chat = () => {
                   {/* Message bubble with reply button */}
                   <div className={`flex items-start gap-2 group ${isOwnMessage ? "flex-row-reverse" : ""}`}>
                     <div
-                      className={`min-w-[100px] max-w-[85%] sm:max-w-[70%] rounded-2xl ${
+                      className={`w-fit max-w-[96%] sm:max-w-[86%] rounded-2xl ${
                         isOwnMessage
                           ? "bg-primary text-primary-foreground rounded-br-sm"
                           : "bg-muted text-foreground rounded-bl-sm"
@@ -283,14 +403,14 @@ const Chat = () => {
                               <p>
                                 <span className="font-medium">Donation:</span>{" "}
                                 {msg.shareMeta.userSnapshot?.donationAmount != null
-                                  ? `₱${(msg.shareMeta.userSnapshot.donationAmount || 0).toLocaleString()}`
-                                  : parsedShare?.donation || "₱0"}
+                                  ? `â‚±${(msg.shareMeta.userSnapshot.donationAmount || 0).toLocaleString()}`
+                                  : parsedShare?.donation || "â‚±0"}
                               </p>
                               <p>
                                 <span className="font-medium">Total Asset:</span>{" "}
                                 {msg.shareMeta.userSnapshot?.totalAsset != null
-                                  ? `₱${(msg.shareMeta.userSnapshot.totalAsset || 0).toLocaleString()}`
-                                  : parsedShare?.totalAsset || "₱0"}
+                                  ? `â‚±${(msg.shareMeta.userSnapshot.totalAsset || 0).toLocaleString()}`
+                                  : parsedShare?.totalAsset || "â‚±0"}
                               </p>
                             </div>
                             {(msg.shareMeta.note || parsedShare?.note) && (
@@ -486,14 +606,147 @@ const Chat = () => {
         </div>
       </div>
 
+      {showSearchPanel && (
+        <div className="fixed top-24 right-6 z-40 w-[92vw] max-w-xl rounded-lg border border-border bg-card shadow-lg p-3 sm:p-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-sm font-medium">Search Conversation</p>
+            <button
+              type="button"
+              onClick={() => setShowSearchPanel(false)}
+              className="p-1 rounded hover:bg-accent"
+              title="Close search"
+            >
+              <IconX className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex flex-col md:flex-row md:items-center gap-2">
+            <div className="relative flex-1">
+              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search conversation..."
+                className="w-full pl-9 pr-3 py-2 rounded-md border border-input bg-background text-foreground text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={jumpToPreviousMatch}
+                disabled={matchedMessageIds.length === 0}
+                className="p-2 rounded-md border border-input hover:bg-accent disabled:opacity-50"
+                title="Previous match"
+              >
+                <IconChevronUp className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={jumpToNextMatch}
+                disabled={matchedMessageIds.length === 0}
+                className="p-2 rounded-md border border-input hover:bg-accent disabled:opacity-50"
+                title="Next match"
+              >
+                <IconChevronDown className="h-4 w-4" />
+              </button>
+              <span className="text-xs text-muted-foreground min-w-[84px] text-right">
+                {searchTerm.trim() ? `${matchedMessageIds.length} match${matchedMessageIds.length === 1 ? "" : "es"}` : "Search"}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMediaModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 animate-in fade-in duration-200"
+          onClick={() => setShowMediaModal(false)}
+        >
+          <div
+            className="w-full max-w-3xl max-h-[85vh] bg-card rounded-lg border border-border overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-2 duration-200"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <div className="inline-flex items-center gap-2">
+                <IconPhoto className="h-5 w-5" />
+                <h3 className="text-base sm:text-lg font-semibold">Media Files</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {mediaItems.length} file{mediaItems.length === 1 ? "" : "s"} shared
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowMediaModal(false)}
+                  className="p-1.5 rounded hover:bg-accent"
+                  title="Close"
+                >
+                  <IconX className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div className="p-3 sm:p-4 max-h-[calc(85vh-70px)] overflow-y-auto space-y-2">
+              {mediaItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No shared files yet.</p>
+              ) : (
+                mediaItems.map((item, index) => {
+                  const isImage = item.type?.startsWith("image/");
+                  return (
+                    <div key={`${item.messageId}-${item.url}-${index}`} className="flex items-center gap-3 p-2 rounded border border-border">
+                      {isImage ? (
+                        <img
+                          src={item.url}
+                          alt={item.name}
+                          className="w-12 h-12 rounded object-cover cursor-pointer"
+                          onClick={() => setImageModal({ url: item.url, name: item.name })}
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded bg-background border border-border flex items-center justify-center">
+                          <IconFile className="h-5 w-5" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm truncate">{item.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.senderName} • {formatTime(item.timestamp)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleDownload(item.url, item.name)}
+                          className="text-xs px-2 py-1 rounded border border-input hover:bg-accent"
+                        >
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowMediaModal(false);
+                            scrollToMessage(item.messageId);
+                          }}
+                          className="text-xs px-2 py-1 rounded border border-input hover:bg-accent"
+                        >
+                          Go to
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Image Modal */}
       {imageModal && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-in fade-in duration-200"
           onClick={() => setImageModal(null)}
         >
           <div 
-            className="relative max-w-[90vw] max-h-[90vh] bg-card rounded-lg overflow-hidden"
+            className="relative max-w-[90vw] max-h-[90vh] bg-card rounded-lg overflow-hidden animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -533,3 +786,5 @@ const Chat = () => {
 };
 
 export default Chat;
+
+

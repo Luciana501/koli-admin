@@ -23,6 +23,9 @@ export interface User {
   name?: string;
   role?: string;
   status?: string;
+  suspendedAt?: string;
+  suspendedBy?: string;
+  suspensionReason?: string;
   uid?: string;
   leaderId?: string;
   leaderName?: string;
@@ -68,6 +71,13 @@ export interface Donation {
   id: string;
   userId: string;
   donationAmount: number;
+  verifiedAmount?: number | null;
+  discrepancyAmount?: number | null;
+  hasDiscrepancy?: boolean;
+  reviewOutcome?: "approved_exact" | "approved_adjusted" | "rejected";
+  reviewNote?: string;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
   paymentMethod: string;
   receiptPath: string;
   receiptURL: string;

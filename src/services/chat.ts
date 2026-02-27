@@ -41,6 +41,34 @@ export interface ChatMessage {
   };
 }
 
+export interface ChatMediaItem extends ChatAttachment {
+  messageId: string;
+  senderName: string;
+  senderType: "developer" | "finance";
+  timestamp: string;
+}
+
+export const getChatMessageSearchableText = (message: ChatMessage): string => {
+  const attachmentText = (message.attachments || [])
+    .map((attachment) => `${attachment.name} ${attachment.type || ""}`)
+    .join(" ");
+  const replyText = message.replyTo ? `${message.replyTo.senderName} ${message.replyTo.message}` : "";
+
+  return `${message.message || ""} ${attachmentText} ${replyText}`.trim();
+};
+
+export const extractChatMediaItems = (messages: ChatMessage[]): ChatMediaItem[] => {
+  return messages.flatMap((message) =>
+    (message.attachments || []).map((attachment) => ({
+      ...attachment,
+      messageId: message.id,
+      senderName: message.senderName,
+      senderType: message.senderType,
+      timestamp: message.timestamp,
+    }))
+  );
+};
+
 // Mark messages as read for the current user
 export const markMessagesAsRead = async (currentUserId: string): Promise<void> => {
   try {

@@ -78,6 +78,7 @@ const Users = () => {
   const [minDonation, setMinDonation] = useState("");
   const [maxDonation, setMaxDonation] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [sortOrder, setSortOrder] = useState<"latest" | "oldest">("latest");
   
   const itemsPerPage = 50;
 
@@ -151,14 +152,17 @@ const Users = () => {
     let matchesDonation = true;
     if (donationFilter && donationFilter !== "all") {
       switch (donationFilter) {
+        case "none":
+          matchesDonation = user.donationAmount === 0;
+          break;
         case "low":
-          matchesDonation = user.donationAmount < 10000;
+          matchesDonation = user.donationAmount >= 1 && user.donationAmount <= 10000;
           break;
         case "medium":
-          matchesDonation = user.donationAmount >= 10000 && user.donationAmount < 50000;
+          matchesDonation = user.donationAmount >= 10001 && user.donationAmount <= 50000;
           break;
         case "high":
-          matchesDonation = user.donationAmount >= 50000;
+          matchesDonation = user.donationAmount > 50000;
           break;
       }
     }
@@ -183,14 +187,19 @@ const Users = () => {
     return matchesSearch && matchesAsset && matchesDonation && matchesKyc && matchesLeader;
   });
 
-  const sortedUsers = [...filteredUsers].sort((a, b) => {
-    const leaderA = (a.leaderName || a.leaderId || "Unassigned").toLowerCase();
-    const leaderB = (b.leaderName || b.leaderId || "Unassigned").toLowerCase();
-    if (leaderA !== leaderB) return leaderA.localeCompare(leaderB);
+  const getCreatedAtMs = (value?: string) => {
+    if (!value) return 0;
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
 
-    const nameA = `${a.firstName} ${a.lastName}`.trim().toLowerCase();
-    const nameB = `${b.firstName} ${b.lastName}`.trim().toLowerCase();
-    return nameA.localeCompare(nameB);
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    const createdAtA = getCreatedAtMs(a.createdAt);
+    const createdAtB = getCreatedAtMs(b.createdAt);
+    if (sortOrder === "latest") {
+      return createdAtB - createdAtA;
+    }
+    return createdAtA - createdAtB;
   });
 
   const totalPages = Math.ceil(sortedUsers.length / itemsPerPage);
@@ -210,6 +219,14 @@ const Users = () => {
   }, {});
 
   const groupedEntries = Object.entries(groupedPaginatedUsers);
+  const rowNumberById = new Map<string, number>();
+  let currentRowNumber = startIndex;
+  groupedEntries.forEach(([, leaderUsers]) => {
+    leaderUsers.forEach((user) => {
+      currentRowNumber += 1;
+      rowNumberById.set(user.id, currentRowNumber);
+    });
+  });
 
   const handleViewUser = (user: User) => {
     setViewingUser(user);
@@ -227,6 +244,7 @@ const Users = () => {
     setMaxDonation("");
     setSearchTerm("");
     setCurrentPage(1);
+    setSortOrder("latest");
   };
   
   const handleCreateUser = () => {
@@ -472,7 +490,27 @@ const Users = () => {
           {/* Advanced Filters */}
           {showFilters && (
             <div className="bg-muted/50 p-4 rounded-lg space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
+                {/* Sort Order Filter */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Sort By</label>
+                  <Select
+                    value={sortOrder}
+                    onValueChange={(value: "latest" | "oldest") => {
+                      setSortOrder(value);
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Sort order" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="latest">Latest First</SelectItem>
+                      <SelectItem value="oldest">Oldest First</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 {/* Asset Filters */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Total Asset</label>
@@ -498,9 +536,10 @@ const Users = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Donations</SelectItem>
-                      <SelectItem value="low">Low (&lt; ₱10K)</SelectItem>
-                      <SelectItem value="medium">Medium (₱10K - ₱50K)</SelectItem>
-                      <SelectItem value="high">High (₱50K+)</SelectItem>
+                      <SelectItem value="none">No Donations</SelectItem>
+                      <SelectItem value="low">Low (1-10K)</SelectItem>
+                      <SelectItem value="medium">Medium (10,001-50,000)</SelectItem>
+                      <SelectItem value="high">High (50,000+)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -606,12 +645,12 @@ const Users = () => {
                   <div className="px-3 py-2 text-xs font-semibold bg-muted/50 border-b border-border">
                     Leader: {leader} • {leaderUsers.length} user{leaderUsers.length > 1 ? "s" : ""}
                   </div>
-                  {leaderUsers.map((user, index) => (
+                  {leaderUsers.map((user) => (
                 <div key={user.id} className="p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-sm truncate">
-                        {startIndex + paginatedUsers.findIndex((current) => current.id === user.id) + 1}. {user.firstName} {user.lastName}
+                        {rowNumberById.get(user.id) ?? startIndex + 1}. {user.firstName} {user.lastName}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                     </div>
@@ -718,12 +757,12 @@ const Users = () => {
                     {leader} ({leaderUsers.length})
                   </td>
                 </tr>
-              {leaderUsers.map((user, index) => (
+              {leaderUsers.map((user) => (
                 <tr
                   key={user.id}
                   className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
                 >
-                  <td className="px-4 py-3 text-sm">{startIndex + paginatedUsers.findIndex((current) => current.id === user.id) + 1}</td>
+                  <td className="px-4 py-3 text-sm">{rowNumberById.get(user.id) ?? startIndex + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium">
                     {user.firstName}
                   </td>
@@ -893,3 +932,4 @@ const Users = () => {
 };
 
 export default Users;
+

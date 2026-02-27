@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import PageLoading from "@/components/PageLoading";
 
 interface RewardHistoryItem {
   id?: string;
@@ -571,13 +572,7 @@ const filteredRewards = React.useMemo(() => {
   const fastestClaimers = (fastestEligible.length > 0 ? fastestEligible : fastestFallback).slice(0, 3);
 
   if (loading) {
-    return (
-      <div className="p-2 sm:p-4 md:p-6 lg:p-8">
-        <div className="flex items-center justify-center h-64">
-          <p className="text-sm md:text-lg text-muted-foreground">Loading reward claims...</p>
-        </div>
-      </div>
-    );
+    return <PageLoading className="min-h-[16rem]" />;
   }
 
   return (
