@@ -60,6 +60,18 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
     if (status === "REJECTED") return "Rejected";
     return "Not Submitted";
   };
+  const formatCreatedAt = (value?: string) => {
+    if (!value) return "N/A";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "N/A";
+    return date.toLocaleString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
 
   if (!isOpen || !user) return null;
 
@@ -149,15 +161,7 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-muted-foreground">Account Created</label>
-                  <p className="text-base font-medium">
-                    {user.createdAt
-                      ? new Date(user.createdAt).toLocaleDateString("en-US", {
-                          year: "numeric",
-                          month: "long",
-                          day: "numeric",
-                        })
-                      : "N/A"}
-                  </p>
+                  <p className="text-base font-medium">{formatCreatedAt(user.createdAt)}</p>
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-muted-foreground">KYC Status</label>

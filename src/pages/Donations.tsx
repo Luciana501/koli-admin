@@ -470,49 +470,47 @@ const Donations = () => {
               ))}
             </div>
 
-            <div className="hidden md:block bg-card border border-border rounded-xl overflow-hidden shadow-sm">
-              <div className="max-h-[55vh] overflow-y-auto">
-              <div className="overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto max-h-[55vh] overflow-y-auto">
                 <table className="w-full min-w-[800px]">
                   <thead>
-                    <tr className="border-b border-border bg-gradient-to-r from-muted/60 to-muted/30">
-                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">User</th>
-                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Amount</th>
-                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Payment Method</th>
-                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Created Date</th>
-                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Receipt</th>
+                    <tr className="border-b border-border bg-muted/50">
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">User</th>
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">Amount</th>
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">Payment Method</th>
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">Created Date</th>
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">Receipt</th>
                     </tr>
                   </thead>
                 <tbody>
                   {paginatedDonations.map((donation) => (
-                    <tr key={donation.id} className="border-b border-border hover:bg-muted/40 transition-colors">
-                      <td className="p-3 md:p-4 lg:p-5">
+                    <tr key={donation.id} className="border-b border-border hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3">
                         <div className="space-y-1">
-                          <p className="font-semibold text-sm md:text-base">{donation.userName || "Loading..."}</p>
+                          <p className="font-medium text-sm">{donation.userName || "Loading..."}</p>
                           <p className="text-xs text-muted-foreground truncate max-w-[150px]">{donation.userEmail || donation.userId}</p>
                         </div>
                       </td>
-                      <td className="p-3 md:p-4 lg:p-5">
-                        <span className="text-base md:text-lg font-bold text-primary whitespace-nowrap">
+                      <td className="px-4 py-3">
+                        <span className="text-sm font-medium whitespace-nowrap">
                           ₱{donation.donationAmount.toLocaleString()}
                         </span>
                       </td>
-                      <td className="p-3 md:p-4 lg:p-5">
-                        <span className="px-2 md:px-3 py-1 md:py-1.5 rounded-full bg-blue-500/10 text-blue-600 text-xs md:text-sm font-medium capitalize whitespace-nowrap">
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-1 rounded-full bg-blue-500/10 text-blue-600 text-xs font-medium capitalize whitespace-nowrap">
                           {donation.paymentMethod}
                         </span>
                       </td>
-                      <td className="p-3 md:p-4 lg:p-5 text-xs md:text-sm text-muted-foreground whitespace-nowrap">
+                      <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
                         {new Date(donation.createdAt).toLocaleDateString('en-US', { 
                           year: 'numeric', 
                           month: 'short', 
                           day: 'numeric' 
                         })}
                       </td>
-                      <td className="p-3 md:p-4 lg:p-5">
+                      <td className="px-4 py-3">
                         <button
                           onClick={() => handleViewReceipt(donation)}
-                          className="inline-flex items-center gap-2 px-2 md:px-3 py-1.5 md:py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-xs md:text-sm font-medium whitespace-nowrap"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/10 hover:bg-primary/20 text-primary transition-colors text-sm font-medium whitespace-nowrap"
                         >
                           <IconEye className="h-4 w-4" />
                           View
@@ -523,8 +521,6 @@ const Donations = () => {
                 </tbody>
               </table>
             </div>
-          </div>
-          </div>
 
           {totalPages > 1 && (
             <div className="mt-7">
@@ -756,32 +752,30 @@ const Donations = () => {
               ))}
             </div>
 
-            <div className="hidden md:block bg-card border border-border rounded-xl overflow-hidden shadow-sm">
-              <div className="max-h-[55vh] overflow-y-auto">
-              <div className="overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto max-h-[55vh] overflow-y-auto">
                 <table className="w-full min-w-[800px]">
                   <thead>
-                    <tr className="border-b border-border bg-gradient-to-r from-muted/60 to-muted/30">
-                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">User</th>
-                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Amount</th>
-                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Payment Method</th>
-                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Created Date</th>
-                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Status</th>
-                      <th className="text-left p-3 md:p-4 lg:p-5 text-xs md:text-sm font-semibold uppercase tracking-wide whitespace-nowrap">Receipt</th>
+                    <tr className="border-b border-border bg-muted/50">
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">User</th>
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">Amount</th>
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">Payment Method</th>
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">Created Date</th>
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">Status</th>
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">Receipt</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedHistory.map((donation) => (
-                      <tr key={donation.id} className="border-b border-border hover:bg-muted/40 transition-colors">
-                        <td className="p-3 md:p-4 lg:p-5">
+                      <tr key={donation.id} className="border-b border-border hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3">
                           <div className="space-y-1">
-                            <p className="font-semibold text-sm md:text-base">{donation.userName || "Loading..."}</p>
+                            <p className="font-medium text-sm">{donation.userName || "Loading..."}</p>
                             <p className="text-xs text-muted-foreground truncate max-w-[150px]">{donation.userEmail || donation.userId}</p>
                           </div>
                         </td>
-                        <td className="p-3 md:p-4 lg:p-5">
+                        <td className="px-4 py-3">
                           <div>
-                            <span className="text-sm md:text-base font-semibold whitespace-nowrap">
+                            <span className="text-sm font-medium whitespace-nowrap">
                               ₱{(donation.verifiedAmount ?? donation.donationAmount).toLocaleString()}
                             </span>
                             {donation.hasDiscrepancy && (
@@ -789,19 +783,19 @@ const Donations = () => {
                             )}
                           </div>
                         </td>
-                        <td className="p-3 md:p-4 lg:p-5">
-                          <span className="px-2 md:px-3 py-1 md:py-1.5 rounded-full bg-blue-500/10 text-blue-600 text-xs md:text-sm font-medium capitalize whitespace-nowrap">
+                        <td className="px-4 py-3">
+                          <span className="px-2 py-1 rounded-full bg-blue-500/10 text-blue-600 text-xs font-medium capitalize whitespace-nowrap">
                             {donation.paymentMethod}
                           </span>
                         </td>
-                        <td className="p-3 md:p-4 lg:p-5 text-xs md:text-sm text-muted-foreground whitespace-nowrap">
+                        <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
                           {new Date(donation.createdAt).toLocaleDateString('en-US', { 
                             year: 'numeric', 
                             month: 'short', 
                             day: 'numeric' 
                           })}
                         </td>
-                        <td className="p-3 md:p-4 lg:p-5">
+                        <td className="px-4 py-3">
                           <span className={`inline-flex px-2 md:px-3 py-1 md:py-1.5 rounded-full text-xs font-semibold ${
                             ["approved", "active"].includes(donation.status)
                               ? donation.hasDiscrepancy
@@ -814,17 +808,17 @@ const Donations = () => {
                             {getDisplayStatus(donation)}
                           </span>
                         </td>
-                        <td className="p-3 md:p-4 lg:p-5">
+                        <td className="px-4 py-3">
                           {donation.receiptURL ? (
                             <button
                               onClick={() => handleViewReceipt(donation)}
-                              className="inline-flex items-center gap-2 px-2 md:px-3 py-1.5 md:py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all hover:scale-105 text-xs md:text-sm font-medium whitespace-nowrap"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/10 hover:bg-primary/20 text-primary transition-colors text-sm font-medium whitespace-nowrap"
                             >
                               <IconEye className="h-4 w-4" />
                               View
                             </button>
                           ) : (
-                            <span className="text-muted-foreground text-xs md:text-sm italic">-</span>
+                            <span className="text-muted-foreground text-sm italic">-</span>
                           )}
                         </td>
                       </tr>
@@ -832,8 +826,6 @@ const Donations = () => {
                   </tbody>
                 </table>
               </div>
-            </div>
-            </div>
 
             {historyTotalPages > 1 && (
               <div className="mt-7">
