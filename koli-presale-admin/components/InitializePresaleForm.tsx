@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
+import { useAnchorWallet } from "@solana/wallet-adapter-react";
 import { Zap, CheckCircle, XCircle, ExternalLink } from "lucide-react";
 import { initializePresale } from "@/lib/admin";
 import { motion } from "framer-motion";
@@ -12,7 +12,6 @@ interface Props {
 
 export default function InitializePresaleForm({ onSuccess }: Props) {
   const wallet = useAnchorWallet();
-  const { connection } = useConnection();
 
   const [form, setForm] = useState({
     mintAddress: "",
@@ -34,7 +33,6 @@ export default function InitializePresaleForm({ onSuccess }: Props) {
   };
 
   const handleSubmit = async () => {
-    if (!wallet) return;
     setLoading(true);
     setResult(null);
 
@@ -50,7 +48,6 @@ export default function InitializePresaleForm({ onSuccess }: Props) {
         cliffTime: toUnixTimestamp(form.cliffTime),
         vestingEnd: toUnixTimestamp(form.vestingEnd),
       },
-      connection
     );
 
     setResult({ sig: res.signature, success: res.success, error: res.error });
@@ -121,14 +118,14 @@ export default function InitializePresaleForm({ onSuccess }: Props) {
         </div>
         <div className="flex justify-between">
           <span className="text-koli-muted">Signer:</span>
-          <span className="text-koli-text">{wallet?.publicKey.toString().slice(0, 12)}...</span>
+          <span className="text-koli-text">{wallet?.publicKey?.toString().slice(0, 12) || "PREVIEW_SIGNER"}...</span>
         </div>
       </div>
 
       <button
         className="btn-primary w-full"
         onClick={handleSubmit}
-        disabled={loading || !wallet || !form.mintAddress}
+        disabled={loading || !form.mintAddress}
       >
         {loading ? (
           <span className="flex items-center justify-center gap-2">

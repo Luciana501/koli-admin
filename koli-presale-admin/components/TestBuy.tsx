@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
+import { useAnchorWallet } from "@solana/wallet-adapter-react";
 import { ShoppingCart, CheckCircle, XCircle, ExternalLink, AlertTriangle } from "lucide-react";
 import { buyTokens } from "@/lib/admin";
 import { motion, AnimatePresence } from "framer-motion";
@@ -13,16 +13,15 @@ interface Props {
 
 export default function TestBuy({ mintAddress, adminAddress }: Props) {
   const wallet = useAnchorWallet();
-  const { connection } = useConnection();
   const [solAmount, setSolAmount] = useState("0.01");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ sig: string; success: boolean; error?: string } | null>(null);
 
   const handleBuy = async () => {
-    if (!wallet || !mintAddress || !adminAddress) return;
+    if (!mintAddress || !adminAddress) return;
     setLoading(true);
     setResult(null);
-    const res = await buyTokens(wallet, mintAddress, adminAddress, parseFloat(solAmount), connection);
+    const res = await buyTokens(wallet, mintAddress, adminAddress, parseFloat(solAmount));
     setResult({ sig: res.signature, success: res.success, error: res.error });
     setLoading(false);
   };
@@ -39,7 +38,7 @@ export default function TestBuy({ mintAddress, adminAddress }: Props) {
       <div className="bg-koli-warning/10 border border-koli-warning/30 rounded p-4 flex gap-3">
         <AlertTriangle size={14} className="text-koli-warning shrink-0 mt-0.5" />
         <p className="text-[11px] text-koli-warning">
-          This uses real Devnet SOL. The admin wallet will simulate a buy transaction, creating a user allocation PDA.
+          Preview mode: this action is simulated only. No wallet funds are used and no on-chain transaction is sent.
         </p>
       </div>
 

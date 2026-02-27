@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
+import { useAnchorWallet } from "@solana/wallet-adapter-react";
 import { Users, Search, RefreshCw, AlertTriangle } from "lucide-react";
 import { fetchUserAllocation } from "@/lib/admin";
 import { deriveUserAllocationPDASync } from "@/lib/pda";
@@ -15,7 +15,6 @@ interface Props {
 
 export default function UserInspector({ mintAddress }: Props) {
   const wallet = useAnchorWallet();
-  const { connection } = useConnection();
   const [userAddress, setUserAddress] = useState("");
   const [loading, setLoading] = useState(false);
   const [allocation, setAllocation] = useState<{
@@ -29,7 +28,7 @@ export default function UserInspector({ mintAddress }: Props) {
   const [allocationPDA, setAllocationPDA] = useState("");
 
   const fetchUser = async () => {
-    if (!wallet || !userAddress) return;
+    if (!userAddress) return;
     setLoading(true);
     setError(null);
     setAllocation(null);
@@ -40,7 +39,7 @@ export default function UserInspector({ mintAddress }: Props) {
       const [pda] = deriveUserAllocationPDASync(userPubkey);
       setAllocationPDA(pda.toString());
 
-      const result = await fetchUserAllocation(wallet, userAddress, connection);
+      const result = await fetchUserAllocation(wallet, userAddress);
       if (result) {
         setAllocation(result);
       } else {

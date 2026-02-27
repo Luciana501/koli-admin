@@ -1,14 +1,14 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useAnchorWallet } from "@solana/wallet-adapter-react";
-import { Layers, Copy, Check } from "lucide-react";
+import { Check, Copy, Layers } from "lucide-react";
 import { PublicKey } from "@solana/web3.js";
 import {
   derivePresalePDASync,
   deriveTreasuryPDASync,
-  deriveVaultPDASync,
   deriveUserAllocationPDASync,
+  deriveVaultPDASync,
 } from "@/lib/pda";
 
 interface Props {
@@ -18,27 +18,23 @@ interface Props {
 function CopyableAddress({ label, value, bump }: { label: string; value: string; bump?: number }) {
   const [copied, setCopied] = useState(false);
 
-  const copy = () => {
-    navigator.clipboard.writeText(value);
+  const copy = async () => {
+    if (!value || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(value);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 1500);
   };
 
   return (
     <div className="bg-koli-bg border border-koli-border rounded p-4">
       <div className="flex items-center justify-between mb-2">
         <span className="text-[10px] text-koli-muted uppercase tracking-wider">{label}</span>
-        {bump !== undefined && (
-          <span className="text-[9px] text-koli-accent/60 font-mono">bump: {bump}</span>
-        )}
+        {bump !== undefined && <span className="text-[9px] text-koli-accent/60 font-mono">bump: {bump}</span>}
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-[11px] text-koli-accent font-mono break-all flex-1">{value || "—"}</span>
+        <span className="text-[11px] text-koli-accent font-mono break-all flex-1">{value || "N/A"}</span>
         {value && (
-          <button
-            onClick={copy}
-            className="shrink-0 text-koli-muted hover:text-koli-accent transition-colors p-1 rounded"
-          >
+          <button onClick={copy} className="shrink-0 text-koli-muted hover:text-koli-accent transition-colors p-1 rounded">
             {copied ? <Check size={12} className="text-koli-accent3" /> : <Copy size={12} />}
           </button>
         )}
@@ -62,10 +58,12 @@ export default function PDATools({ mintAddress }: Props) {
   } | null>(null);
 
   const derivePDAs = () => {
-    if (!wallet || !mintAddress) return;
+    if (!mintAddress) return;
+
     try {
+      const adminPubkey = wallet?.publicKey || new PublicKey("11111111111111111111111111111111");
       const mintPubkey = new PublicKey(mintAddress);
-      const [presalePDA, presaleBump] = derivePresalePDASync(wallet.publicKey, mintPubkey);
+      const [presalePDA, presaleBump] = derivePresalePDASync(adminPubkey, mintPubkey);
       const [treasuryPDA, treasuryBump] = deriveTreasuryPDASync(presalePDA);
       const [vaultPDA, vaultBump] = deriveVaultPDASync(presalePDA);
 
@@ -75,7 +73,10 @@ export default function PDATools({ mintAddress }: Props) {
         try {
           const userPubkey = new PublicKey(userInput);
           [userAllocPDA, userAllocBump] = deriveUserAllocationPDASync(userPubkey);
-        } catch {}
+        } catch {
+          userAllocPDA = PublicKey.default;
+          userAllocBump = 0;
+        }
       }
 
       setPDAs({
@@ -88,7 +89,9 @@ export default function PDATools({ mintAddress }: Props) {
         userAlloc: userInput ? userAllocPDA.toString() : "",
         userAllocBump,
       });
-    } catch {}
+    } catch {
+      setPDAs(null);
+    }
   };
 
   useEffect(() => {
@@ -99,30 +102,29 @@ export default function PDATools({ mintAddress }: Props) {
     <div className="space-y-5">
       <div className="flex items-center gap-3 mb-2">
         <Layers size={16} className="text-koli-accent" />
-        <h2 className="text-sm font-bold text-koli-accent" style={{ fontFamily: 'var(--font-display)' }}>
+        <h2 className="text-sm font-bold text-koli-accent" style={{ fontFamily: "var(--font-display)" }}>
           PDA DERIVATION TOOLS
         </h2>
       </div>
 
-      {/* Seeds info */}
       <div className="bg-koli-bg border border-koli-border rounded p-4 text-[10px] font-mono space-y-2">
         <div className="text-koli-muted uppercase tracking-wider mb-3">Seed Schemes</div>
         <div className="space-y-1.5 text-koli-muted">
           <div>
             <span className="text-koli-accent">Presale PDA </span>
-            → [&quot;presale&quot;, admin, mint]
+            -&gt; ["presale", admin, mint]
           </div>
           <div>
             <span className="text-koli-accent">Treasury PDA </span>
-            → [&quot;treasury&quot;, presale]
+            -&gt; ["treasury", presale]
           </div>
           <div>
             <span className="text-koli-accent">Vault PDA </span>
-            → [&quot;vault&quot;, presale]
+            -&gt; ["vault", presale]
           </div>
           <div>
             <span className="text-koli-accent">User Alloc PDA </span>
-            → [&quot;user-allocation&quot;, user]
+            -&gt; ["user-allocation", user]
           </div>
         </div>
         <div className="mt-2 pt-2 border-t border-koli-border text-koli-muted/60">
@@ -130,11 +132,12 @@ export default function PDATools({ mintAddress }: Props) {
         </div>
       </div>
 
-      {/* Current inputs */}
       <div className="grid grid-cols-2 gap-3 text-[10px] font-mono">
         <div className="bg-koli-bg border border-koli-border rounded p-3">
           <div className="text-koli-muted mb-1">Admin (Signer)</div>
-          <div className="text-koli-text break-all">{wallet?.publicKey.toString().slice(0, 20)}...</div>
+          <div className="text-koli-text break-all">
+            {(wallet?.publicKey?.toString() || "11111111111111111111111111111111").slice(0, 20)}...
+          </div>
         </div>
         <div className="bg-koli-bg border border-koli-border rounded p-3">
           <div className="text-koli-muted mb-1">Mint</div>
@@ -142,7 +145,6 @@ export default function PDATools({ mintAddress }: Props) {
         </div>
       </div>
 
-      {/* Derived PDAs */}
       {pdas && (
         <div className="space-y-3">
           <CopyableAddress label="Presale PDA" value={pdas.presale} bump={pdas.presaleBump} />
@@ -151,7 +153,6 @@ export default function PDATools({ mintAddress }: Props) {
         </div>
       )}
 
-      {/* User allocation */}
       <div>
         <label className="block text-[10px] text-koli-muted uppercase tracking-wider mb-1.5">
           User Address (for allocation PDA)
@@ -164,23 +165,11 @@ export default function PDATools({ mintAddress }: Props) {
         />
       </div>
 
-      {pdas && (
-        <CopyableAddress
-          label="User Allocation PDA"
-          value={pdas.userAlloc}
-          bump={pdas.userAllocBump}
-        />
-      )}
+      {pdas && <CopyableAddress label="User Allocation PDA" value={pdas.userAlloc} bump={pdas.userAllocBump} />}
 
       {!mintAddress && (
         <div className="bg-koli-warning/10 border border-koli-warning/30 rounded p-3 text-[11px] text-koli-warning">
-          ⚠ Set mint address in Presale State to derive PDAs
-        </div>
-      )}
-
-      {!wallet && (
-        <div className="bg-koli-warning/10 border border-koli-warning/30 rounded p-3 text-[11px] text-koli-warning">
-          ⚠ Connect wallet to derive PDAs
+          Set mint address in Presale State to derive PDAs
         </div>
       )}
     </div>

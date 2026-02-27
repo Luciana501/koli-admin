@@ -1,25 +1,5 @@
-import {
-  PublicKey,
-  SystemProgram,
-  SYSVAR_RENT_PUBKEY,
-  Connection,
-} from "@solana/web3.js";
-import {
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddressSync,
-  getMint,
-  getAccount,
-} from "@solana/spl-token";
-import { BN } from "@coral-xyz/anchor";
-import { AnchorWallet } from "@solana/wallet-adapter-react";
-import { getProgram, DEVNET_CONNECTION, solToLamports } from "./anchor";
-import {
-  derivePresalePDASync,
-  deriveTreasuryPDASync,
-  deriveVaultPDASync,
-  deriveUserAllocationPDASync,
-} from "./pda";
+// Preview-only mock implementations for presale admin UI.
+// No on-chain reads/writes are performed in this file.
 
 export interface PresaleState {
   admin: string;
@@ -53,67 +33,84 @@ export interface TxResult {
   error?: string;
 }
 
-export async function fetchPresaleState(
-  wallet: AnchorWallet,
-  mintAddress: string,
-  connection?: Connection
-): Promise<PresaleState | null> {
-  try {
-    const conn = connection || DEVNET_CONNECTION;
-    const program = getProgram(wallet, conn);
-    const mintPubkey = new PublicKey(mintAddress);
-    const [presalePDA] = derivePresalePDASync(wallet.publicKey, mintPubkey);
+type MaybeWallet = { publicKey?: { toString: () => string } } | null | undefined;
 
-    const state = await (program.account as any).presale.fetch(presalePDA);
-    return {
-      admin: state.admin.toString(),
-      mint: state.mint.toString(),
-      vault: state.vault.toString(),
-      treasury: state.treasury.toString(),
-      totalSold: state.totalSold.toString(),
-      totalClaimed: state.totalClaimed.toString(),
-      maxSupply: state.maxSupply.toString(),
-      basePrice: state.basePrice.toString(),
-      priceIncrement: state.priceIncrement.toString(),
-      startTime: state.startTime.toNumber(),
-      endTime: state.endTime.toNumber(),
-      cliffTime: state.cliffTime.toNumber(),
-      vestingEnd: state.vestingEnd.toNumber(),
-      paused: state.paused,
-      bump: state.bump,
-    };
-  } catch (e) {
-    return null;
-  }
+const PREVIEW_ADMIN = "PREVIEW_ADMIN_4xexkQVDQ8ebsAxGjCetizM387ccsM";
+const PREVIEW_BASE_PRICE = "1000000"; // 0.001 SOL in lamports
+const PREVIEW_PRICE_INCREMENT = "100"; // 0.0000001 SOL in lamports
+const PREVIEW_MAX_SUPPLY = "1000000000000000"; // 1,000,000 tokens @ 9 decimals
+
+function wait(ms = 220): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function fakeSignature(): string {
+  return `preview_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function cleanMint(mintAddress: string): string {
+  return mintAddress?.trim() || "PREVIEW_MINT_9f8a7b6c5d4e3f2a1b";
+}
+
+function previewAddress(prefix: string, mintAddress: string): string {
+  const mint = cleanMint(mintAddress).replace(/[^a-zA-Z0-9]/g, "").slice(0, 20);
+  return `${prefix}_${mint || "PREVIEW"}`;
+}
+
+function walletAddress(wallet: MaybeWallet): string {
+  return wallet?.publicKey?.toString?.() || PREVIEW_ADMIN;
+}
+
+export async function fetchPresaleState(
+  wallet: MaybeWallet,
+  mintAddress: string,
+  _connection?: unknown
+): Promise<PresaleState | null> {
+  await wait();
+
+  const now = Math.floor(Date.now() / 1000);
+  const mint = cleanMint(mintAddress);
+
+  return {
+    admin: walletAddress(wallet),
+    mint,
+    vault: previewAddress("PREVIEW_VAULT", mint),
+    treasury: previewAddress("PREVIEW_TREASURY", mint),
+    totalSold: "278000000000000",
+    totalClaimed: "124000000000000",
+    maxSupply: PREVIEW_MAX_SUPPLY,
+    basePrice: PREVIEW_BASE_PRICE,
+    priceIncrement: PREVIEW_PRICE_INCREMENT,
+    startTime: now - 86400,
+    endTime: now + 86400 * 14,
+    cliffTime: now + 86400 * 21,
+    vestingEnd: now + 86400 * 120,
+    paused: false,
+    bump: 255,
+  };
 }
 
 export async function fetchUserAllocation(
-  wallet: AnchorWallet,
+  _wallet: MaybeWallet,
   userAddress: string,
-  connection?: Connection
+  _connection?: unknown
 ): Promise<UserAllocationState | null> {
-  try {
-    const conn = connection || DEVNET_CONNECTION;
-    const program = getProgram(wallet, conn);
-    const userPubkey = new PublicKey(userAddress);
-    const [userAllocPDA] = deriveUserAllocationPDASync(userPubkey);
+  await wait();
 
-    const state = await (program.account as any).userAllocation.fetch(userAllocPDA);
-    return {
-      user: state.user.toString(),
-      presale: state.presale.toString(),
-      amountPurchased: state.amountPurchased.toString(),
-      amountClaimed: state.amountClaimed.toString(),
-      bump: state.bump,
-    };
-  } catch (e) {
-    return null;
-  }
+  if (!userAddress?.trim()) return null;
+
+  return {
+    user: userAddress.trim(),
+    presale: "PREVIEW_PRESALE_9a8b7c6d5e4f3g2h",
+    amountPurchased: "15000000000",
+    amountClaimed: "4500000000",
+    bump: 254,
+  };
 }
 
 export async function initializePresale(
-  wallet: AnchorWallet,
-  params: {
+  _wallet: MaybeWallet,
+  _params: {
     mintAddress: string;
     basePrice: number;
     priceIncrement: number;
@@ -123,202 +120,68 @@ export async function initializePresale(
     cliffTime: number;
     vestingEnd: number;
   },
-  connection?: Connection
+  _connection?: unknown
 ): Promise<TxResult> {
-  try {
-    const conn = connection || DEVNET_CONNECTION;
-    const program = getProgram(wallet, conn);
-    const mintPubkey = new PublicKey(params.mintAddress);
-
-    const [presalePDA] = derivePresalePDASync(wallet.publicKey, mintPubkey);
-    const [treasuryPDA] = deriveTreasuryPDASync(presalePDA);
-    const [vaultPDA] = deriveVaultPDASync(presalePDA);
-
-    const sig = await (program.methods as any)
-      .initializePresale(
-        new BN(solToLamports(params.basePrice)),
-        new BN(solToLamports(params.priceIncrement)),
-        new BN(params.maxSupply * 1e9),
-        new BN(params.startTime),
-        new BN(params.endTime),
-        new BN(params.cliffTime),
-        new BN(params.vestingEnd)
-      )
-      .accounts({
-        presale: presalePDA,
-        treasury: treasuryPDA,
-        vault: vaultPDA,
-        mint: mintPubkey,
-        admin: wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .rpc();
-
-    return { signature: sig, success: true };
-  } catch (e: any) {
-    return { signature: "", success: false, error: e.message || String(e) };
-  }
+  await wait();
+  return { signature: fakeSignature(), success: true };
 }
 
 export async function setPause(
-  wallet: AnchorWallet,
-  mintAddress: string,
-  paused: boolean,
-  connection?: Connection
+  _wallet: MaybeWallet,
+  _mintAddress: string,
+  _paused: boolean,
+  _connection?: unknown
 ): Promise<TxResult> {
-  try {
-    const conn = connection || DEVNET_CONNECTION;
-    const program = getProgram(wallet, conn);
-    const mintPubkey = new PublicKey(mintAddress);
-    const [presalePDA] = derivePresalePDASync(wallet.publicKey, mintPubkey);
-
-    const sig = await (program.methods as any)
-      .setPause(paused)
-      .accounts({
-        presale: presalePDA,
-        admin: wallet.publicKey,
-      })
-      .rpc();
-
-    return { signature: sig, success: true };
-  } catch (e: any) {
-    return { signature: "", success: false, error: e.message || String(e) };
-  }
+  await wait();
+  return { signature: fakeSignature(), success: true };
 }
 
 export async function withdrawTreasury(
-  wallet: AnchorWallet,
-  mintAddress: string,
-  amountSol: number,
-  connection?: Connection
+  _wallet: MaybeWallet,
+  _mintAddress: string,
+  _amountSol: number,
+  _connection?: unknown
 ): Promise<TxResult> {
-  try {
-    const conn = connection || DEVNET_CONNECTION;
-    const program = getProgram(wallet, conn);
-    const mintPubkey = new PublicKey(mintAddress);
-    const [presalePDA] = derivePresalePDASync(wallet.publicKey, mintPubkey);
-    const [treasuryPDA] = deriveTreasuryPDASync(presalePDA);
-
-    const sig = await (program.methods as any)
-      .withdrawTreasury(new BN(solToLamports(amountSol)))
-      .accounts({
-        presale: presalePDA,
-        treasury: treasuryPDA,
-        admin: wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    return { signature: sig, success: true };
-  } catch (e: any) {
-    return { signature: "", success: false, error: e.message || String(e) };
-  }
+  await wait();
+  return { signature: fakeSignature(), success: true };
 }
 
 export async function buyTokens(
-  wallet: AnchorWallet,
-  mintAddress: string,
-  adminAddress: string,
-  solAmount: number,
-  connection?: Connection
+  _wallet: MaybeWallet,
+  _mintAddress: string,
+  _adminAddress: string,
+  _solAmount: number,
+  _connection?: unknown
 ): Promise<TxResult> {
-  try {
-    const conn = connection || DEVNET_CONNECTION;
-    const program = getProgram(wallet, conn);
-    const mintPubkey = new PublicKey(mintAddress);
-    const adminPubkey = new PublicKey(adminAddress);
-    const [presalePDA] = derivePresalePDASync(adminPubkey, mintPubkey);
-    const [treasuryPDA] = deriveTreasuryPDASync(presalePDA);
-    const [userAllocPDA] = deriveUserAllocationPDASync(wallet.publicKey);
-
-    const sig = await (program.methods as any)
-      .buyTokens(new BN(solToLamports(solAmount)))
-      .accounts({
-        presale: presalePDA,
-        treasury: treasuryPDA,
-        userAllocation: userAllocPDA,
-        buyer: wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    return { signature: sig, success: true };
-  } catch (e: any) {
-    return { signature: "", success: false, error: e.message || String(e) };
-  }
+  await wait();
+  return { signature: fakeSignature(), success: true };
 }
 
 export async function claimTokens(
-  wallet: AnchorWallet,
-  mintAddress: string,
-  adminAddress: string,
-  connection?: Connection
+  _wallet: MaybeWallet,
+  _mintAddress: string,
+  _adminAddress: string,
+  _connection?: unknown
 ): Promise<TxResult> {
-  try {
-    const conn = connection || DEVNET_CONNECTION;
-    const program = getProgram(wallet, conn);
-    const mintPubkey = new PublicKey(mintAddress);
-    const adminPubkey = new PublicKey(adminAddress);
-    const [presalePDA] = derivePresalePDASync(adminPubkey, mintPubkey);
-    const [vaultPDA] = deriveVaultPDASync(presalePDA);
-    const [userAllocPDA] = deriveUserAllocationPDASync(wallet.publicKey);
-
-    const userTokenAccount = getAssociatedTokenAddressSync(
-      mintPubkey,
-      wallet.publicKey
-    );
-
-    const sig = await (program.methods as any)
-      .claimTokens()
-      .accounts({
-        presale: presalePDA,
-        vault: vaultPDA,
-        userAllocation: userAllocPDA,
-        userTokenAccount,
-        claimer: wallet.publicKey,
-        mint: mintPubkey,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    return { signature: sig, success: true };
-  } catch (e: any) {
-    return { signature: "", success: false, error: e.message || String(e) };
-  }
+  await wait();
+  return { signature: fakeSignature(), success: true };
 }
 
 export async function getVaultBalance(
-  vaultAddress: string,
-  connection?: Connection
+  _vaultAddress: string,
+  _connection?: unknown
 ): Promise<{ balance: number; decimals: number } | null> {
-  try {
-    const conn = connection || DEVNET_CONNECTION;
-    const vaultPubkey = new PublicKey(vaultAddress);
-    const accountInfo = await getAccount(conn, vaultPubkey);
-    const mintInfo = await getMint(conn, accountInfo.mint);
-    return {
-      balance: Number(accountInfo.amount),
-      decimals: mintInfo.decimals,
-    };
-  } catch {
-    return null;
-  }
+  await wait(120);
+  return {
+    balance: 734_000_000_000,
+    decimals: 9,
+  };
 }
 
 export async function getTreasuryBalance(
-  treasuryAddress: string,
-  connection?: Connection
+  _treasuryAddress: string,
+  _connection?: unknown
 ): Promise<number> {
-  try {
-    const conn = connection || DEVNET_CONNECTION;
-    const treasuryPubkey = new PublicKey(treasuryAddress);
-    const balance = await conn.getBalance(treasuryPubkey);
-    return balance;
-  } catch {
-    return 0;
-  }
+  await wait(120);
+  return 61_500_000_000; // 61.5 SOL
 }

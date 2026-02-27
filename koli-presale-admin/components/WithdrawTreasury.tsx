@@ -1,11 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import { Wallet, CheckCircle, XCircle, ExternalLink, RefreshCw } from "lucide-react";
 import { withdrawTreasury, getTreasuryBalance } from "@/lib/admin";
-import { derivePresalePDASync, deriveTreasuryPDASync } from "@/lib/pda";
-import { PublicKey } from "@solana/web3.js";
 import { lamportsToSol } from "@/lib/anchor";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -14,8 +11,6 @@ interface Props {
 }
 
 export default function WithdrawTreasury({ mintAddress }: Props) {
-  const wallet = useAnchorWallet();
-  const { connection } = useConnection();
   const [amount, setAmount] = useState("0.1");
   const [treasuryBalance, setTreasuryBalance] = useState<number | null>(null);
   const [treasuryAddr, setTreasuryAddr] = useState("");
@@ -24,14 +19,12 @@ export default function WithdrawTreasury({ mintAddress }: Props) {
   const [result, setResult] = useState<{ sig: string; success: boolean; error?: string } | null>(null);
 
   const fetchBalance = async () => {
-    if (!wallet || !mintAddress) return;
+    if (!mintAddress) return;
     setRefreshing(true);
     try {
-      const mintPubkey = new PublicKey(mintAddress);
-      const [presalePDA] = derivePresalePDASync(wallet.publicKey, mintPubkey);
-      const [treasuryPDA] = deriveTreasuryPDASync(presalePDA);
-      setTreasuryAddr(treasuryPDA.toString());
-      const bal = await getTreasuryBalance(treasuryPDA.toString(), connection);
+      const previewAddr = `PREVIEW_TREASURY_${mintAddress.slice(0, 16)}`;
+      setTreasuryAddr(previewAddr);
+      const bal = await getTreasuryBalance(previewAddr);
       setTreasuryBalance(bal);
     } finally {
       setRefreshing(false);
@@ -40,13 +33,13 @@ export default function WithdrawTreasury({ mintAddress }: Props) {
 
   useEffect(() => {
     fetchBalance();
-  }, [wallet, mintAddress, connection]);
+  }, [mintAddress]);
 
   const handleWithdraw = async () => {
-    if (!wallet || !mintAddress) return;
+    if (!mintAddress) return;
     setLoading(true);
     setResult(null);
-    const res = await withdrawTreasury(wallet, mintAddress, parseFloat(amount), connection);
+    const res = await withdrawTreasury(undefined, mintAddress, parseFloat(amount));
     setResult({ sig: res.signature, success: res.success, error: res.error });
     if (res.success) await fetchBalance();
     setLoading(false);
@@ -123,7 +116,7 @@ export default function WithdrawTreasury({ mintAddress }: Props) {
         <div className="bg-koli-bg border border-koli-border rounded p-3 text-[10px] font-mono">
           <div className="text-koli-muted uppercase tracking-wider mb-1">Instruction</div>
           <div className="text-koli-accent">withdraw_treasury({amount || "0"} SOL)</div>
-          <div className="text-koli-muted mt-1">→ Admin wallet receives funds</div>
+          <div className="text-koli-muted mt-1">Preview only: simulated payout (no real transfer)</div>
         </div>
 
         <button
@@ -184,3 +177,6 @@ export default function WithdrawTreasury({ mintAddress }: Props) {
     </div>
   );
 }
+
+
+

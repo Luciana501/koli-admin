@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
+import { useAnchorWallet } from "@solana/wallet-adapter-react";
 import { RefreshCw, AlertTriangle } from "lucide-react";
 import { fetchPresaleState, PresaleState } from "@/lib/admin";
 import { lamportsToSol, formatTokenAmount, shortenAddress } from "@/lib/anchor";
@@ -39,23 +39,22 @@ function DataRow({ label, value, highlight, mono = true }: {
 
 export default function PresaleStateCard({ mintAddress, onMintChange }: Props) {
   const wallet = useAnchorWallet();
-  const { connection } = useConnection();
   const [state, setState] = useState<PresaleState | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [mintInput, setMintInput] = useState(mintAddress);
 
   const refresh = useCallback(async () => {
-    if (!wallet || !mintInput) return;
+    if (!mintInput) return;
     setLoading(true);
     try {
-      const s = await fetchPresaleState(wallet, mintInput, connection);
+      const s = await fetchPresaleState(wallet, mintInput);
       setState(s);
       setLastRefresh(new Date());
     } finally {
       setLoading(false);
     }
-  }, [wallet, mintInput, connection]);
+  }, [wallet, mintInput]);
 
   useEffect(() => {
     refresh();

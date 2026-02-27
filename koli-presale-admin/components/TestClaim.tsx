@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
+import { useAnchorWallet } from "@solana/wallet-adapter-react";
 import { Gift, CheckCircle, XCircle, ExternalLink, AlertTriangle } from "lucide-react";
 import { claimTokens } from "@/lib/admin";
 import { motion, AnimatePresence } from "framer-motion";
@@ -13,15 +13,14 @@ interface Props {
 
 export default function TestClaim({ mintAddress, adminAddress }: Props) {
   const wallet = useAnchorWallet();
-  const { connection } = useConnection();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ sig: string; success: boolean; error?: string } | null>(null);
 
   const handleClaim = async () => {
-    if (!wallet || !mintAddress || !adminAddress) return;
+    if (!mintAddress || !adminAddress) return;
     setLoading(true);
     setResult(null);
-    const res = await claimTokens(wallet, mintAddress, adminAddress, connection);
+    const res = await claimTokens(wallet, mintAddress, adminAddress);
     setResult({ sig: res.signature, success: res.success, error: res.error });
     setLoading(false);
   };
@@ -38,7 +37,7 @@ export default function TestClaim({ mintAddress, adminAddress }: Props) {
       <div className="bg-koli-warning/10 border border-koli-warning/30 rounded p-4 flex gap-3">
         <AlertTriangle size={14} className="text-koli-warning shrink-0 mt-0.5" />
         <p className="text-[11px] text-koli-warning">
-          Claim is subject to vesting schedule. Cliff period must be reached. Admin wallet must have purchased tokens first.
+          Preview mode: claim flow is mocked for UI testing. No vesting checks or real claims are executed.
         </p>
       </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
+import React, { useState } from "react";
+import { useAnchorWallet } from "@solana/wallet-adapter-react";
 import { PauseCircle, Play, CheckCircle, XCircle, ExternalLink } from "lucide-react";
 import { setPause } from "@/lib/admin";
 import { motion, AnimatePresence } from "framer-motion";
@@ -14,16 +14,15 @@ interface Props {
 
 export default function PauseToggle({ mintAddress, currentPaused, onToggle }: Props) {
   const wallet = useAnchorWallet();
-  const { connection } = useConnection();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ sig: string; success: boolean; error?: string; action?: string } | null>(null);
 
   const handleToggle = async (pause: boolean) => {
-    if (!wallet || !mintAddress) return;
+    if (!mintAddress) return;
     setLoading(true);
     setResult(null);
 
-    const res = await setPause(wallet, mintAddress, pause, connection);
+    const res = await setPause(wallet, mintAddress, pause);
     setResult({
       sig: res.signature,
       success: res.success,

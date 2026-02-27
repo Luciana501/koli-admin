@@ -1,11 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import { Layers, RefreshCw } from "lucide-react";
 import { getVaultBalance } from "@/lib/admin";
-import { derivePresalePDASync, deriveVaultPDASync } from "@/lib/pda";
-import { PublicKey } from "@solana/web3.js";
 import { formatTokenAmount } from "@/lib/anchor";
 
 interface Props {
@@ -13,22 +10,18 @@ interface Props {
 }
 
 export default function VaultViewer({ mintAddress }: Props) {
-  const wallet = useAnchorWallet();
-  const { connection } = useConnection();
   const [balance, setBalance] = useState<number | null>(null);
   const [decimals, setDecimals] = useState<number>(9);
   const [vaultAddr, setVaultAddr] = useState("");
   const [loading, setLoading] = useState(false);
 
   const fetchVault = async () => {
-    if (!wallet || !mintAddress) return;
+    if (!mintAddress) return;
     setLoading(true);
     try {
-      const mintPubkey = new PublicKey(mintAddress);
-      const [presalePDA] = derivePresalePDASync(wallet.publicKey, mintPubkey);
-      const [vaultPDA] = deriveVaultPDASync(presalePDA);
-      setVaultAddr(vaultPDA.toString());
-      const result = await getVaultBalance(vaultPDA.toString(), connection);
+      const previewVault = `PREVIEW_VAULT_${mintAddress.slice(0, 16)}`;
+      setVaultAddr(previewVault);
+      const result = await getVaultBalance(previewVault);
       if (result) {
         setBalance(result.balance);
         setDecimals(result.decimals);
@@ -42,7 +35,7 @@ export default function VaultViewer({ mintAddress }: Props) {
     fetchVault();
     const interval = setInterval(fetchVault, 10000);
     return () => clearInterval(interval);
-  }, [wallet, mintAddress]);
+  }, [mintAddress]);
 
   const percentage = balance !== null && balance > 0
     ? Math.min((balance / (100_000_000 * Math.pow(10, decimals))) * 100, 100)
