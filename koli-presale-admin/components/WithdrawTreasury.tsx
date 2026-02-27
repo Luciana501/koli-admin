@@ -47,7 +47,7 @@ export default function WithdrawTreasury({ mintAddress }: Props) {
     setLoading(true);
     setResult(null);
     const res = await withdrawTreasury(wallet, mintAddress, parseFloat(amount), connection);
-    setResult(res);
+    setResult({ sig: res.signature, success: res.success, error: res.error });
     if (res.success) await fetchBalance();
     setLoading(false);
   };

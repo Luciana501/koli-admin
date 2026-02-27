@@ -22,7 +22,7 @@ export default function TestClaim({ mintAddress, adminAddress }: Props) {
     setLoading(true);
     setResult(null);
     const res = await claimTokens(wallet, mintAddress, adminAddress, connection);
-    setResult(res);
+    setResult({ sig: res.signature, success: res.success, error: res.error });
     setLoading(false);
   };
 

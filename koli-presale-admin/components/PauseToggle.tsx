@@ -24,7 +24,12 @@ export default function PauseToggle({ mintAddress, currentPaused, onToggle }: Pr
     setResult(null);
 
     const res = await setPause(wallet, mintAddress, pause, connection);
-    setResult({ ...res, action: pause ? "PAUSED" : "UNPAUSED" });
+    setResult({
+      sig: res.signature,
+      success: res.success,
+      error: res.error,
+      action: pause ? "PAUSED" : "UNPAUSED",
+    });
     if (res.success && onToggle) onToggle();
     setLoading(false);
   };

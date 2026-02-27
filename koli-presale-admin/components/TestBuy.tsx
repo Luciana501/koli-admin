@@ -23,7 +23,7 @@ export default function TestBuy({ mintAddress, adminAddress }: Props) {
     setLoading(true);
     setResult(null);
     const res = await buyTokens(wallet, mintAddress, adminAddress, parseFloat(solAmount), connection);
-    setResult(res);
+    setResult({ sig: res.signature, success: res.success, error: res.error });
     setLoading(false);
   };
 
