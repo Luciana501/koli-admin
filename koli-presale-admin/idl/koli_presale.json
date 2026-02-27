@@ -1,0 +1,128 @@
+{
+  "version": "0.1.0",
+  "name": "koli_presale",
+  "instructions": [
+    {
+      "name": "initializePresale",
+      "accounts": [
+        { "name": "presale", "isMut": true, "isSigner": false },
+        { "name": "treasury", "isMut": true, "isSigner": false },
+        { "name": "vault", "isMut": true, "isSigner": false },
+        { "name": "mint", "isMut": false, "isSigner": false },
+        { "name": "admin", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false },
+        { "name": "rent", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "basePrice", "type": "u64" },
+        { "name": "priceIncrement", "type": "u64" },
+        { "name": "maxSupply", "type": "u64" },
+        { "name": "startTime", "type": "i64" },
+        { "name": "endTime", "type": "i64" },
+        { "name": "cliffTime", "type": "i64" },
+        { "name": "vestingEnd", "type": "i64" }
+      ]
+    },
+    {
+      "name": "buyTokens",
+      "accounts": [
+        { "name": "presale", "isMut": true, "isSigner": false },
+        { "name": "treasury", "isMut": true, "isSigner": false },
+        { "name": "userAllocation", "isMut": true, "isSigner": false },
+        { "name": "buyer", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "solAmount", "type": "u64" }
+      ]
+    },
+    {
+      "name": "claimTokens",
+      "accounts": [
+        { "name": "presale", "isMut": true, "isSigner": false },
+        { "name": "vault", "isMut": true, "isSigner": false },
+        { "name": "userAllocation", "isMut": true, "isSigner": false },
+        { "name": "userTokenAccount", "isMut": true, "isSigner": false },
+        { "name": "claimer", "isMut": true, "isSigner": true },
+        { "name": "mint", "isMut": false, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false },
+        { "name": "associatedTokenProgram", "isMut": false, "isSigner": false },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "setPause",
+      "accounts": [
+        { "name": "presale", "isMut": true, "isSigner": false },
+        { "name": "admin", "isMut": false, "isSigner": true }
+      ],
+      "args": [
+        { "name": "paused", "type": "bool" }
+      ]
+    },
+    {
+      "name": "withdrawTreasury",
+      "accounts": [
+        { "name": "presale", "isMut": true, "isSigner": false },
+        { "name": "treasury", "isMut": true, "isSigner": false },
+        { "name": "admin", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "amount", "type": "u64" }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Presale",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "admin", "type": "publicKey" },
+          { "name": "mint", "type": "publicKey" },
+          { "name": "vault", "type": "publicKey" },
+          { "name": "treasury", "type": "publicKey" },
+          { "name": "totalSold", "type": "u64" },
+          { "name": "totalClaimed", "type": "u64" },
+          { "name": "maxSupply", "type": "u64" },
+          { "name": "basePrice", "type": "u64" },
+          { "name": "priceIncrement", "type": "u64" },
+          { "name": "startTime", "type": "i64" },
+          { "name": "endTime", "type": "i64" },
+          { "name": "cliffTime", "type": "i64" },
+          { "name": "vestingEnd", "type": "i64" },
+          { "name": "paused", "type": "bool" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "UserAllocation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "user", "type": "publicKey" },
+          { "name": "presale", "type": "publicKey" },
+          { "name": "amountPurchased", "type": "u64" },
+          { "name": "amountClaimed", "type": "u64" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    }
+  ],
+  "errors": [
+    { "code": 6000, "name": "Unauthorized", "msg": "Unauthorized: not presale admin" },
+    { "code": 6001, "name": "PresalePaused", "msg": "Presale is paused" },
+    { "code": 6002, "name": "PresaleNotActive", "msg": "Presale is not active" },
+    { "code": 6003, "name": "ExceedsMaxSupply", "msg": "Exceeds max supply" },
+    { "code": 6004, "name": "CliffNotReached", "msg": "Cliff period not reached" },
+    { "code": 6005, "name": "NothingToClaim", "msg": "Nothing to claim" },
+    { "code": 6006, "name": "InsufficientFunds", "msg": "Insufficient funds" }
+  ],
+  "metadata": {
+    "address": "4xexkQVDQ8ebsAxGjCetizM387ccsMDqZwV5Y25vKQnj"
+  }
+}

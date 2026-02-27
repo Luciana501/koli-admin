@@ -157,6 +157,7 @@ export function AppSidebar() {
           { label: "KYC", href: "/kyc", icon: IconShieldCheck, badge: formatBadge(pendingKycCount) },
           { label: "MANA Reward", href: "/mana-reward", icon: IconStar },
           { label: "Platform Codes", href: "/platform-codes", icon: IconKey },
+          { label: "Presale Admin", href: "/presale-admin", icon: IconCash },
           { label: "Donations", href: "/donations", icon: IconHeart, badge: formatBadge(pendingDonationCount) },
           { label: "Reward History", href: "/reward-history", icon: IconTrophy },
           { label: "News", href: "/news", icon: IconChartLine },

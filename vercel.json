@@ -1,7 +1,15 @@
 {
   "rewrites": [
     {
-      "source": "/((?!api/|assets/|.*\\..*).*)",
+      "source": "/koli-presale-admin",
+      "destination": "https://koli-presale-admin.vercel.app"
+    },
+    {
+      "source": "/koli-presale-admin/:path*",
+      "destination": "https://koli-presale-admin.vercel.app/:path*"
+    },
+    {
+      "source": "/((?!api/|assets/|koli-presale-admin|.*\\..*).*)",
       "destination": "/index.html"
     }
   ]
