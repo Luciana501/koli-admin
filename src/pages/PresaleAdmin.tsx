@@ -1,7 +1,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 
-const DEFAULT_PRESALE_ADMIN_URL = "/koli-presale-admin";
+const DEFAULT_PRESALE_ADMIN_URL = "https://koli-presale-admin.vercel.app/";
 
 const PresaleAdmin: React.FC = () => {
   const configuredUrl = import.meta.env.VITE_PRESALE_ADMIN_URL?.trim();
@@ -27,8 +27,8 @@ const PresaleAdmin: React.FC = () => {
         <h2 className="text-lg font-semibold">Presale Admin URL Configuration</h2>
         <p className="mt-2 text-sm text-muted-foreground">
           The embedded URL currently points to this same route, which causes a recursive load.
-          Set `VITE_PRESALE_ADMIN_URL` to the deployed Presale Admin path (for example
-          `/koli-presale-admin`) and reload.
+          Set `VITE_PRESALE_ADMIN_URL` to the deployed Presale Admin app URL (for example
+          `https://koli-presale-admin.vercel.app/`) and reload.
         </p>
       </div>
     );
