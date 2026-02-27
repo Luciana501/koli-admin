@@ -12,7 +12,11 @@ export function getProgram(wallet: AnchorWallet, connection?: Connection) {
     commitment: "confirmed",
     preflightCommitment: "confirmed",
   });
-  return new Program(idl as Idl, PROGRAM_ID, provider);
+  const normalizedIdl = {
+    ...(idl as Record<string, unknown>),
+    address: PROGRAM_ID.toBase58(),
+  } as unknown as Idl;
+  return new Program(normalizedIdl, PROGRAM_ID, provider);
 }
 
 export function getProvider(wallet: AnchorWallet, connection?: Connection) {
