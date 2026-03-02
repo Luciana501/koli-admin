@@ -11,16 +11,40 @@ interface UserModalProps {
   user: User | null;
 }
 
+interface DonationContractEntry {
+  id: string;
+  amount: number;
+  status: string;
+  paymentMethod: string;
+  createdAt: string;
+}
+
 const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
   const [totalWithdrawals, setTotalWithdrawals] = useState<number>(0);
   const [totalRewardsClaimed, setTotalRewardsClaimed] = useState<number>(0);
   const [isLoadingStats, setIsLoadingStats] = useState<boolean>(false);
+  const [donationEntries, setDonationEntries] = useState<DonationContractEntry[]>([]);
+  const [isLoadingDonations, setIsLoadingDonations] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setDonationEntries([]);
+      return;
+    }
+
+    const normalizeIso = (value: unknown): string => {
+      if (!value) return new Date().toISOString();
+      if (typeof value === "string") return value;
+      if (value instanceof Date) return value.toISOString();
+      if (typeof (value as { toDate?: () => Date }).toDate === "function") {
+        return (value as { toDate: () => Date }).toDate().toISOString();
+      }
+      return new Date().toISOString();
+    };
 
     const fetchUserStats = async () => {
       setIsLoadingStats(true);
+      setIsLoadingDonations(true);
       try {
         const withdrawalsRef = collection(db, "withdrawals");
         const withdrawalsQuery = query(
@@ -43,17 +67,70 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
           return sum + (data.claimAmount || 0);
         }, 0);
         setTotalRewardsClaimed(rewardsTotal);
+
+        const donationContractsRef = collection(db, "donationContracts");
+        const idsToMatch = Array.from(
+          new Set([user.id, user.uid].filter((value): value is string => Boolean(value?.trim())))
+        );
+        const fieldsToMatch = ["userId", "uid", "memberId"] as const;
+        const donationSnapshots = await Promise.all(
+          idsToMatch.flatMap((idValue) =>
+            fieldsToMatch.map((field) => getDocs(query(donationContractsRef, where(field, "==", idValue))))
+          )
+        );
+
+        const uniqueEntries = new Map<string, DonationContractEntry>();
+        donationSnapshots.forEach((snapshot) => {
+          snapshot.docs.forEach((docSnapshot) => {
+            if (uniqueEntries.has(docSnapshot.id)) return;
+            const data = docSnapshot.data();
+            const declaredAmount = Number(data.donationAmount || 0);
+            const verifiedAmount = typeof data.verifiedAmount === "number" ? data.verifiedAmount : null;
+            const effectiveAmount = Number(verifiedAmount ?? declaredAmount);
+
+            uniqueEntries.set(docSnapshot.id, {
+              id: docSnapshot.id,
+              amount: Number.isFinite(effectiveAmount) ? effectiveAmount : 0,
+              status: String(data.status || "pending"),
+              paymentMethod: String(data.paymentMethod || "N/A"),
+              createdAt: normalizeIso(data.createdAt),
+            });
+          });
+        });
+
+        const sortedEntries = Array.from(uniqueEntries.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setDonationEntries(sortedEntries);
       } catch (error) {
         console.error("Error fetching user stats:", error);
+        setDonationEntries([]);
       } finally {
         setIsLoadingStats(false);
+        setIsLoadingDonations(false);
       }
     };
 
     fetchUserStats();
   }, [user]);
 
-  const formatCurrency = (value: number) => `₱${value.toLocaleString()}`;
+  const formatCurrency = (value: number) => `\u20B1${value.toLocaleString()}`;
+  const formatDonationStatus = (status: string) => {
+    const normalized = status.toLowerCase();
+    if (normalized === "approved" || normalized === "active") return "Approved";
+    if (normalized === "rejected") return "Rejected";
+    return "Pending";
+  };
+  const getDonationStatusClassName = (status: string) => {
+    const normalized = status.toLowerCase();
+    if (normalized === "approved" || normalized === "active") {
+      return "bg-green-500/15 text-green-600";
+    }
+    if (normalized === "rejected") {
+      return "bg-red-500/15 text-red-600";
+    }
+    return "bg-amber-500/15 text-amber-600";
+  };
   const formatKycStatus = (status?: string) => {
     if (status === "APPROVED") return "Approved";
     if (status === "PENDING") return "Pending";
@@ -72,6 +149,15 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
       minute: "2-digit",
     });
   };
+
+  const contractsTotalDonations = donationEntries.reduce((sum, entry) => {
+    const normalized = entry.status.toLowerCase();
+    if (normalized !== "approved" && normalized !== "active") return sum;
+    return sum + entry.amount;
+  }, 0);
+
+  const donationSummaryAmount =
+    donationEntries.length > 0 ? contractsTotalDonations : user?.donationAmount || 0;
 
   if (!isOpen || !user) return null;
 
@@ -131,8 +217,8 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
             <TabsContent value="financials" className="mt-4 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-sm font-medium text-muted-foreground">Donations</label>
-                  <p className="text-base font-medium">{formatCurrency(user.donationAmount || 0)}</p>
+                  <label className="text-sm font-medium text-muted-foreground">Total Donations</label>
+                  <p className="text-base font-medium">{formatCurrency(donationSummaryAmount)}</p>
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-muted-foreground">Assets</label>
@@ -154,6 +240,45 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
                     <p className="text-base font-medium">{formatCurrency(totalRewardsClaimed)}</p>
                   )}
                 </div>
+              </div>
+
+              <div className="pt-2 border-t border-border">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <label className="text-sm font-medium text-muted-foreground">Donation Entries</label>
+                  <span className="text-xs text-muted-foreground">
+                    {isLoadingDonations ? "Loading..." : `${donationEntries.length} record(s)`}
+                  </span>
+                </div>
+
+                {isLoadingDonations ? (
+                  <p className="text-sm text-muted-foreground italic">Loading donation records...</p>
+                ) : donationEntries.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No donation records found.</p>
+                ) : (
+                  <div className="max-h-52 overflow-y-auto border border-border rounded-md divide-y divide-border">
+                    {donationEntries.map((entry) => (
+                      <div key={entry.id} className="px-3 py-2 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{formatCurrency(entry.amount)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(entry.createdAt).toLocaleDateString("en-US", {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                            })}{" "} - {entry.paymentMethod}
+                          </p>
+                        </div>
+                        <span
+                          className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${getDonationStatusClassName(
+                            entry.status
+                          )}`}
+                        >
+                          {formatDonationStatus(entry.status)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </TabsContent>
 
@@ -196,3 +321,4 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
 };
 
 export default UserModal;
+

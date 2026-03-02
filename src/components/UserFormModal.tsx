@@ -1,9 +1,21 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { User } from "@/types/admin";
 import { IconX } from "@tabler/icons-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { subscribeToPlatformCodes } from "@/services/firestore";
+
+const buildLeaderValue = (leaderId: string, leaderName: string) =>
+  `${encodeURIComponent(leaderId.trim())}|${encodeURIComponent(leaderName.trim())}`;
+
+const parseLeaderValue = (value: string) => {
+  const [encodedLeaderId = "", encodedLeaderName = ""] = value.split("|");
+  return {
+    leaderId: decodeURIComponent(encodedLeaderId),
+    leaderName: decodeURIComponent(encodedLeaderName),
+  };
+};
 
 interface UserFormModalProps {
   isOpen: boolean;
@@ -26,6 +38,8 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
     email: "",
     phoneNumber: "",
     address: "",
+    leaderName: "",
+    leaderId: "",
     password: "",
     donationAmount: "0",
     totalAsset: "0",
@@ -33,6 +47,49 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [platformCodeLeaders, setPlatformCodeLeaders] = useState<Array<{ leaderId: string; leaderName: string }>>([]);
+
+  const leaderOptions = useMemo(() => {
+    const uniqueLeaders = new Map<string, { leaderId: string; leaderName: string }>();
+
+    platformCodeLeaders.forEach((leader) => {
+      const leaderId = (leader.leaderId || "").trim();
+      const leaderName = (leader.leaderName || "").trim();
+      if (!leaderId && !leaderName) return;
+
+      const key = buildLeaderValue(leaderId, leaderName);
+      if (!uniqueLeaders.has(key)) {
+        uniqueLeaders.set(key, { leaderId, leaderName });
+      }
+    });
+
+    return Array.from(uniqueLeaders.entries())
+      .map(([value, leader]) => ({
+        value,
+        leaderId: leader.leaderId,
+        leaderName: leader.leaderName,
+        label: leader.leaderName || leader.leaderId,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [platformCodeLeaders]);
+
+  const selectedLeaderValue =
+    formData.leaderId || formData.leaderName
+      ? buildLeaderValue(formData.leaderId, formData.leaderName)
+      : "unassigned";
+  const hasSelectedLeaderInOptions = leaderOptions.some((option) => option.value === selectedLeaderValue);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToPlatformCodes((codes) => {
+      const leaders = codes.map((code) => ({
+        leaderId: code.leaderId || "",
+        leaderName: code.leaderName || "",
+      }));
+      setPlatformCodeLeaders(leaders);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (user && mode === "edit") {
@@ -42,6 +99,8 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         email: user.email || "",
         phoneNumber: user.phoneNumber || "",
         address: user.address || "",
+        leaderName: user.leaderName || "",
+        leaderId: user.leaderId || "",
         password: "",
         donationAmount: user.donationAmount?.toString() || "0",
         totalAsset: user.totalAsset?.toString() || "0",
@@ -54,6 +113,8 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         email: "",
         phoneNumber: "",
         address: "",
+        leaderName: "",
+        leaderId: "",
         password: "",
         donationAmount: "0",
         totalAsset: "0",
@@ -108,6 +169,8 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         email: formData.email.trim(),
         phoneNumber: formData.phoneNumber.trim(),
         address: formData.address.trim(),
+        leaderName: formData.leaderName.trim() || undefined,
+        leaderId: formData.leaderId.trim() || undefined,
         donationAmount: parseFloat(formData.donationAmount) || 0,
         totalAsset: parseFloat(formData.totalAsset) || 0,
         kycStatus: formData.kycStatus,
@@ -225,6 +288,43 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
             {errors.address && (
               <p className="text-xs text-destructive">{errors.address}</p>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Leader</label>
+            <Select
+              value={selectedLeaderValue}
+              onValueChange={(value) => {
+                if (value === "unassigned") {
+                  setFormData({ ...formData, leaderId: "", leaderName: "" });
+                  return;
+                }
+
+                const parsed = parseLeaderValue(value);
+                setFormData({
+                  ...formData,
+                  leaderId: parsed.leaderId,
+                  leaderName: parsed.leaderName,
+                });
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select leader" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unassigned">Unassigned</SelectItem>
+                {!hasSelectedLeaderInOptions && selectedLeaderValue !== "unassigned" && (
+                  <SelectItem value={selectedLeaderValue}>
+                    {formData.leaderName || formData.leaderId} (Current)
+                  </SelectItem>
+                )}
+                {leaderOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label} ({option.leaderId || "N/A"})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {mode === "create" && (

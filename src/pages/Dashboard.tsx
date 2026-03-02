@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import {
   MaintenanceSchedulerConfig,
+  fetchReportAnalytics,
+  ReportData,
   saveMaintenanceScheduler,
   subscribeToDonations,
   subscribeToKYC,
@@ -28,6 +30,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import PageLoading from "@/components/PageLoading";
+import { Area, AreaChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
+import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 
 const Dashboard = () => {
   const { adminType } = useAuth();
@@ -38,7 +42,17 @@ const Dashboard = () => {
     totalDonations: 0,
     totalAssets: 0,
     pendingWithdrawals: 0,
-    pendingWithdrawalAmount: 0,
+    totalWithdrawalsAmount: 0,
+  });
+  const [chartLoading, setChartLoading] = useState(false);
+  const [dashboardCharts, setDashboardCharts] = useState<{
+    users: Array<{ label: string; value: number }>;
+    donations: Array<{ label: string; value: number }>;
+    assets: Array<{ label: string; value: number }>;
+  }>({
+    users: [],
+    donations: [],
+    assets: [],
   });
 
   const [recentUsers, setRecentUsers] = useState<User[]>([]);
@@ -82,7 +96,7 @@ const Dashboard = () => {
       totalDonations: 0,
       totalAssets: 0,
       pendingWithdrawals: 0,
-      pendingWithdrawalAmount: 0,
+      totalWithdrawalsAmount: 0,
     });
     setLoading(false);
 
@@ -108,12 +122,15 @@ const Dashboard = () => {
       const unsubscribeWithdrawals = subscribeToODHexWithdrawals((withdrawals) => {
         const pendingRequests = withdrawals.filter((withdrawal) => withdrawal.status === "pending");
         const pendingCount = pendingRequests.length;
-        const pendingAmount = pendingRequests.reduce((sum, withdrawal) => sum + (withdrawal.amount || 0), 0);
+        const totalWithdrawalsAmount = withdrawals.reduce(
+          (sum, withdrawal) => sum + (withdrawal.amount || 0),
+          0
+        );
 
         setStats((previousValue) => ({
           ...previousValue,
           pendingWithdrawals: pendingCount,
-          pendingWithdrawalAmount: pendingAmount,
+          totalWithdrawalsAmount,
         }));
 
         setRecentWithdrawals(withdrawals.slice(0, 5));
@@ -216,6 +233,51 @@ const Dashboard = () => {
       window.clearInterval(timer);
     };
   }, [maintenanceConfig, maintenanceAutoActivating]);
+
+  useEffect(() => {
+    const toLabel = (date: Date) =>
+      new Intl.DateTimeFormat("en-US", {
+        month: "short",
+      }).format(date);
+
+    const toSeries = (data: ReportData[], type: "users" | "donations" | "assets") =>
+      data
+        .map((point) => ({
+          label: toLabel(point.date),
+          value: type === "users" ? Number(point.count || 0) : Number(point.amount || 0),
+          dateMs: point.date.getTime(),
+        }))
+        .sort((a, b) => a.dateMs - b.dateMs)
+        .map(({ label, value }) => ({ label, value }));
+
+    const loadDashboardCharts = async () => {
+      setChartLoading(true);
+      try {
+        const [usersData, donationsData, assetsData] = await Promise.all([
+          fetchReportAnalytics("users", "6months"),
+          fetchReportAnalytics("donations", "6months"),
+          fetchReportAnalytics("assets", "6months"),
+        ]);
+
+        setDashboardCharts({
+          users: toSeries(usersData, "users"),
+          donations: toSeries(donationsData, "donations"),
+          assets: toSeries(assetsData, "assets"),
+        });
+      } catch (chartError) {
+        console.error("Failed to load dashboard charts:", chartError);
+        setDashboardCharts({
+          users: [],
+          donations: [],
+          assets: [],
+        });
+      } finally {
+        setChartLoading(false);
+      }
+    };
+
+    loadDashboardCharts();
+  }, []);
 
   const handleApprove = async (id: string) => {
     setProcessingId(id);
@@ -432,7 +494,7 @@ const Dashboard = () => {
   const statCards = [
     { title: "Total Users", value: stats.totalUsers.toString(), icon: IconUsers, meta: "Live" },
     { title: "Total Donations", value: `₱${stats.totalDonations.toLocaleString()}`, icon: IconWallet, meta: "Approved" },
-    { title: "Total Principal", value: `₱${stats.totalAssets.toLocaleString()}`, icon: IconCash, meta: "Current" },
+    { title: "Total Withdrawals", value: `₱${stats.totalWithdrawalsAmount.toLocaleString()}`, icon: IconCash, meta: "All Time" },
     { title: "Pending Withdrawals", value: stats.pendingWithdrawals.toString(), icon: IconArrowUpRight, meta: "Requests" },
   ];
 
@@ -452,8 +514,32 @@ const Dashboard = () => {
     );
   }
 
-  const communityReserve = Math.round(stats.totalAssets * 0.7);
-  const currentLiability = stats.pendingWithdrawalAmount;
+  const chartCards: Array<{
+    title: string;
+    description: string;
+    data: Array<{ label: string; value: number }>;
+    color: string;
+  }> = [
+    {
+      title: "Users Trend",
+      description: "Last 6 months",
+      data: dashboardCharts.users,
+      color: "#3b82f6",
+    },
+    {
+      title: "Donations Trend",
+      description: "Last 6 months",
+      data: dashboardCharts.donations,
+      color: "#10b981",
+    },
+    {
+      title: "Assets Trend",
+      description: "Last 6 months",
+      data: dashboardCharts.assets,
+      color: "#8b5cf6",
+    },
+  ];
+  const chartConfig = { value: { label: "Value", color: "#3b82f6" } } satisfies ChartConfig;
 
   return (
     <div>
@@ -584,17 +670,6 @@ const Dashboard = () => {
       </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-3 md:gap-4 mb-6">
-        <div className="bg-card border border-border rounded-lg p-4 md:p-6 flex flex-col justify-between">
-          <span className="text-muted-foreground text-xs md:text-sm font-medium">Community Reserve (70% of Assets)</span>
-          <span className="text-2xl md:text-3xl font-bold mt-2">₱{communityReserve.toLocaleString()}</span>
-        </div>
-        <div className="bg-card border border-border rounded-lg p-4 md:p-6 flex flex-col justify-between">
-          <span className="text-muted-foreground text-xs md:text-sm font-medium">Current Liability (Pending ODHex Withdrawals)</span>
-          <span className="text-2xl md:text-3xl font-bold mt-2">₱{currentLiability.toLocaleString()}</span>
-        </div>
-      </div>
-
       {adminType === "developer" && (
         <div className="bg-card border border-border rounded-lg p-4 md:p-6 mb-6">
           <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Pending KYC Applications</h2>
@@ -646,6 +721,48 @@ const Dashboard = () => {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
+        {chartCards.map((chart) => {
+          const chartId = chart.title.toLowerCase().replace(/\s+/g, "-");
+          return (
+          <div key={chart.title} className="bg-card border border-border rounded-lg p-4 md:p-5">
+            <div className="mb-3">
+              <h3 className="text-sm md:text-base font-semibold">{chart.title}</h3>
+              <p className="text-xs md:text-sm text-muted-foreground">{chart.description}</p>
+            </div>
+            <ChartContainer config={chartConfig} className="h-[220px] w-full">
+              <AreaChart data={chart.data} margin={{ top: 10, left: 6, right: 6, bottom: 0 }}>
+                <defs>
+                  <linearGradient id={`gradient-${chartId}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={chart.color} stopOpacity={0.35} />
+                    <stop offset="95%" stopColor={chart.color} stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+                <YAxis tickLine={false} axisLine={false} width={40} />
+                <Tooltip
+                  formatter={(value: any) => Number(value || 0).toLocaleString()}
+                  labelFormatter={(label) => `Month: ${label}`}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke={chart.color}
+                  fillOpacity={1}
+                  fill={`url(#gradient-${chartId})`}
+                  strokeWidth={2}
+                />
+              </AreaChart>
+            </ChartContainer>
+            {chartLoading && (
+              <p className="text-xs text-muted-foreground mt-2">Loading chart...</p>
+            )}
+          </div>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">

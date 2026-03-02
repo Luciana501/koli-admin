@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { User } from "@/types/admin";
-import { subscribeToUsers, createUser, updateUser, deleteUser, shareUserWithOtherAdmin, shareUserToAdminChat, updateKYCStatus } from "@/services/firestore";
+import { subscribeToUsers, createUser, updateUser, deleteUser, shareUserWithOtherAdmin, shareUserToAdminChat, updateKYCStatus, syncDonationContractsToTarget } from "@/services/firestore";
 import { IconSearch, IconEye, IconFilter, IconX, IconEdit, IconTrash, IconPlus, IconShare, IconCopy } from "@tabler/icons-react";
 import {
   Pagination,
@@ -329,8 +329,22 @@ const Users = () => {
       } else if (formMode === "edit" && editingUser) {
         const nextKycStatus = userData.kycStatus;
         const previousKycStatus = editingUser.kycStatus;
+        const hasDonationUpdate = Object.prototype.hasOwnProperty.call(userData, "donationAmount");
+        const previousDonationAmount = Number(editingUser.donationAmount || 0);
+        const nextDonationAmount = Number(
+          hasDonationUpdate ? userData.donationAmount : previousDonationAmount
+        );
 
         await updateUser(editingUser.id, userData);
+
+        if (hasDonationUpdate && Number.isFinite(nextDonationAmount)) {
+          await syncDonationContractsToTarget({
+            userId: editingUser.id,
+            memberUid: editingUser.uid || editingUser.id,
+            targetAmount: nextDonationAmount,
+            note: "Donation amount adjusted in Users edit form",
+          });
+        }
 
         if (
           nextKycStatus &&

@@ -1878,6 +1878,8 @@ export const createUser = async (
         email: userData.email,
         phoneNumber: userData.phoneNumber,
         address: userData.address,
+        leaderName: userData.leaderName || "",
+        leaderId: userData.leaderId || "",
         password,
         donationAmount: userData.donationAmount || 0,
         totalAsset: userData.totalAsset || 0,
@@ -1939,6 +1941,95 @@ export const updateUser = async (
     console.error("Error updating user:", error);
     throw error;
   }
+};
+
+// Create an approved donation contract adjustment from admin-side user edits.
+// This keeps donationContracts-based dashboards/history in sync with members.donationAmount edits.
+export const createDonationAdjustment = async (payload: {
+  userId: string;
+  memberUid?: string;
+  amountDelta: number;
+  note?: string;
+}): Promise<void> => {
+  const safeUserId = (payload.memberUid || payload.userId || "").trim();
+  const delta = Number(payload.amountDelta || 0);
+
+  if (!safeUserId || !Number.isFinite(delta) || delta === 0) {
+    return;
+  }
+
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const endDate = new Date(now);
+  endDate.setDate(endDate.getDate() + 365);
+  const endDateIso = endDate.toISOString();
+  const adminUid = auth.currentUser?.uid || "";
+
+  await addDoc(collection(db, "donationContracts"), {
+    userId: safeUserId,
+    uid: safeUserId,
+    memberId: safeUserId,
+    donationAmount: delta,
+    verifiedAmount: delta,
+    discrepancyAmount: 0,
+    hasDiscrepancy: false,
+    reviewOutcome: "approved_exact",
+    reviewNote: payload.note?.trim() || "Admin adjustment from Users form",
+    reviewedAt: nowIso,
+    reviewedBy: adminUid,
+    paymentMethod: "admin_adjustment",
+    receiptPath: "",
+    receiptURL: "",
+    status: "approved",
+    createdAt: nowIso,
+    approvedAt: nowIso,
+    approvedBy: adminUid,
+    donationStartDate: nowIso,
+    contractEndDate: endDateIso,
+    lastWithdrawalDate: null,
+    withdrawalsCount: 0,
+    totalWithdrawn: 0,
+    isAdminAdjustment: true,
+  });
+};
+
+// Ensure approved donationContracts total matches a target amount for a user.
+// Used by admin-side Users edit to keep donationContracts and members in sync.
+export const syncDonationContractsToTarget = async (payload: {
+  userId: string;
+  memberUid?: string;
+  targetAmount: number;
+  note?: string;
+}): Promise<void> => {
+  const safeUserId = (payload.memberUid || payload.userId || "").trim();
+  const targetAmount = Number(payload.targetAmount || 0);
+
+  if (!safeUserId || !Number.isFinite(targetAmount) || targetAmount < 0) {
+    return;
+  }
+
+  const contractsSnapshot = await getDocs(
+    query(collection(db, "donationContracts"), where("userId", "==", safeUserId))
+  );
+
+  const currentApprovedTotal = contractsSnapshot.docs.reduce((sum, docSnapshot) => {
+    const data = docSnapshot.data();
+    const status = String(data.status || "").toLowerCase();
+    if (status !== "approved" && status !== "active") return sum;
+    return sum + Number(data.donationAmount || 0);
+  }, 0);
+
+  const delta = targetAmount - currentApprovedTotal;
+  if (!Number.isFinite(delta) || delta === 0) {
+    return;
+  }
+
+  await createDonationAdjustment({
+    userId: safeUserId,
+    memberUid: safeUserId,
+    amountDelta: delta,
+    note: payload.note?.trim() || "Donation contracts synced from Users edit form",
+  });
 };
 
 export const suspendUserAccount = async (userId: string, reason?: string): Promise<void> => {
