@@ -44,6 +44,11 @@ import {
 } from "@/components/ui/dialog";
 
 const Users = () => {
+  const toMoney = (value: number): number => {
+    if (!Number.isFinite(value)) return 0;
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  };
+
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -219,6 +224,8 @@ const Users = () => {
   }, {});
 
   const groupedEntries = Object.entries(groupedPaginatedUsers);
+  const isLeaderFiltered = leaderFilter !== "all";
+  const copyButtonLabel = isLeaderFiltered ? "Copy Leader Users" : "Copy All Users";
   const rowNumberById = new Map<string, number>();
   let currentRowNumber = startIndex;
   groupedEntries.forEach(([, leaderUsers]) => {
@@ -276,7 +283,17 @@ const Users = () => {
       return [title, ...lines].join("\n");
     };
 
+    const scopeLine = isLeaderFiltered
+      ? `Leader Scope: ${leaderFilter}`
+      : "Leader Scope: All Leaders";
+    const summaryLine = isLeaderFiltered
+      ? `Total Joined via ${leaderFilter}: ${sortedUsers.length}`
+      : `Total Users: ${sortedUsers.length}`;
+
     const textToCopy = [
+      scopeLine,
+      summaryLine,
+      "",
       buildSection("KYC Approved", approvedUsers),
       "",
       buildSection("Not-Submitted KYC", notSubmittedUsers),
@@ -301,7 +318,9 @@ const Users = () => {
 
       toast({
         title: "Users copied",
-        description: `${sortedUsers.length} user${sortedUsers.length > 1 ? "s" : ""} copied to clipboard.`,
+        description: isLeaderFiltered
+          ? `${sortedUsers.length} user${sortedUsers.length > 1 ? "s" : ""} copied for ${leaderFilter}.`
+          : `${sortedUsers.length} user${sortedUsers.length > 1 ? "s" : ""} copied to clipboard.`,
       });
     } catch (error) {
       toast({
@@ -318,31 +337,44 @@ const Users = () => {
     setIsFormModalOpen(true);
   };
   
-  const handleSaveUser = async (userData: Partial<User>) => {
+  const handleSaveUser = async (userData: Partial<User> & { paymentMethod: string; receiptFile?: File | null }) => {
     try {
+      const { paymentMethod, receiptFile, ...memberUserData } = userData;
+      const canEditDonationFields = adminType === "developer";
+
+      if (!canEditDonationFields) {
+        delete (memberUserData as Partial<User>).donationAmount;
+      } else if (Object.prototype.hasOwnProperty.call(memberUserData, "donationAmount")) {
+        (memberUserData as Partial<User>).donationAmount = toMoney(
+          Number(memberUserData.donationAmount || 0)
+        );
+      }
+
       if (formMode === "create") {
-        await createUser(userData as Omit<User, "id" | "createdAt">);
+        await createUser(memberUserData as Omit<User, "id" | "createdAt">);
         toast({
           title: "Success",
           description: "User created successfully",
         });
       } else if (formMode === "edit" && editingUser) {
-        const nextKycStatus = userData.kycStatus;
+        const nextKycStatus = memberUserData.kycStatus;
         const previousKycStatus = editingUser.kycStatus;
-        const hasDonationUpdate = Object.prototype.hasOwnProperty.call(userData, "donationAmount");
+        const hasDonationUpdate = Object.prototype.hasOwnProperty.call(memberUserData, "donationAmount");
         const previousDonationAmount = Number(editingUser.donationAmount || 0);
         const nextDonationAmount = Number(
-          hasDonationUpdate ? userData.donationAmount : previousDonationAmount
+          hasDonationUpdate ? memberUserData.donationAmount : previousDonationAmount
         );
 
-        await updateUser(editingUser.id, userData);
+        await updateUser(editingUser.id, memberUserData);
 
-        if (hasDonationUpdate && Number.isFinite(nextDonationAmount)) {
+        if (canEditDonationFields && hasDonationUpdate && Number.isFinite(nextDonationAmount)) {
           await syncDonationContractsToTarget({
             userId: editingUser.id,
             memberUid: editingUser.uid || editingUser.id,
             targetAmount: nextDonationAmount,
             note: "Donation amount adjusted in Users edit form",
+            paymentMethod: paymentMethod?.trim() || "bank:BPI",
+            receiptFile: receiptFile || null,
           });
         }
 
@@ -451,7 +483,7 @@ const Users = () => {
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleCopyAllUsers} className="flex items-center gap-2">
             <IconCopy className="h-4 w-4" />
-            Copy All Users
+            {copyButtonLabel}
           </Button>
           <Button onClick={handleCreateUser} className="flex items-center gap-2">
             <IconPlus className="h-4 w-4" />
@@ -887,6 +919,7 @@ const Users = () => {
         onSave={handleSaveUser}
         user={editingUser}
         mode={formMode}
+        canEditDonationFields={adminType === "developer"}
       />
       
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

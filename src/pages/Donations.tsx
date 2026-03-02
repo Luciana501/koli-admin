@@ -57,6 +57,7 @@ const Donations = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [amountFilter, setAmountFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
+  const [sortOrder, setSortOrder] = useState<"latest" | "oldest">("latest");
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
   const [minAmount, setMinAmount] = useState("");
@@ -88,7 +89,7 @@ const Donations = () => {
   );
 
   const historyDonations = useMemo(() => {
-    return historySourceDonations.filter((donation) => {
+    const filtered = historySourceDonations.filter((donation) => {
       const normalizedSearch = searchTerm.toLowerCase();
       const matchesSearch =
         !searchTerm ||
@@ -137,7 +138,16 @@ const Donations = () => {
 
       return matchesSearch && matchesAmount && matchesPaymentMethod && matchesDate;
     });
-  }, [historySourceDonations, searchTerm, amountFilter, paymentMethodFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
+
+    return [...filtered].sort((a, b) => {
+      const createdAtA = new Date(a.createdAt).getTime();
+      const createdAtB = new Date(b.createdAt).getTime();
+      if (sortOrder === "latest") {
+        return createdAtB - createdAtA;
+      }
+      return createdAtA - createdAtB;
+    });
+  }, [historySourceDonations, searchTerm, amountFilter, paymentMethodFilter, sortOrder, dateFromFilter, dateToFilter, minAmount, maxAmount]);
   
   const totalPages = Math.ceil(pendingDonations.length / itemsPerPage);
   const historyTotalPages = Math.ceil(historyDonations.length / itemsPerPage);
@@ -159,6 +169,7 @@ const Donations = () => {
     searchTerm ||
     amountFilter !== "all" ||
     paymentMethodFilter !== "all" ||
+    sortOrder !== "latest" ||
     dateFromFilter ||
     dateToFilter ||
     minAmount ||
@@ -166,12 +177,13 @@ const Donations = () => {
 
   useEffect(() => {
     setHistoryPage(1);
-  }, [searchTerm, amountFilter, paymentMethodFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
+  }, [searchTerm, amountFilter, paymentMethodFilter, sortOrder, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
   const clearFilters = () => {
     setSearchTerm("");
     setAmountFilter("all");
     setPaymentMethodFilter("all");
+    setSortOrder("latest");
     setDateFromFilter("");
     setDateToFilter("");
     setMinAmount("");
@@ -598,7 +610,20 @@ const Donations = () => {
 
           {showFilters && (
             <div className="bg-muted/50 p-4 rounded-lg space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Sort By</label>
+                  <Select value={sortOrder} onValueChange={(value: "latest" | "oldest") => setSortOrder(value)}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Sort order" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="latest">Latest First</SelectItem>
+                      <SelectItem value="oldest">Oldest First</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Amount Range</label>
                   <Select value={amountFilter} onValueChange={setAmountFilter}>
@@ -949,14 +974,6 @@ const Donations = () => {
                       {getDisplayStatus(selectedDonation)}
                     </span>
                   </div>
-                  {selectedDonation.reviewNote?.trim() && (
-                    <div className="md:col-span-2">
-                      <p className="text-xs text-muted-foreground mb-1">Review Note</p>
-                      <p className="font-semibold whitespace-pre-wrap">
-                        {selectedDonation.reviewNote.trim()}
-                      </p>
-                    </div>
-                  )}
                   {selectedDonation.status === "rejected" && (
                     <div className="md:col-span-2">
                       <p className="text-xs text-muted-foreground mb-1">Rejection Reason</p>

@@ -20,9 +20,10 @@ const parseLeaderValue = (value: string) => {
 interface UserFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (userData: Partial<User>) => Promise<void>;
+  onSave: (userData: Partial<User> & { paymentMethod: string; receiptFile?: File | null }) => Promise<void>;
   user: User | null;
   mode: "create" | "edit";
+  canEditDonationFields?: boolean;
 }
 
 const UserFormModal: React.FC<UserFormModalProps> = ({
@@ -31,6 +32,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
   onSave,
   user,
   mode,
+  canEditDonationFields = true,
 }) => {
   const [formData, setFormData] = useState({
     firstName: "",
@@ -42,9 +44,10 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
     leaderId: "",
     password: "",
     donationAmount: "0",
-    totalAsset: "0",
+    paymentMethod: "bank:BPI",
     kycStatus: "NOT_SUBMITTED" as "NOT_SUBMITTED" | "PENDING" | "APPROVED" | "REJECTED",
   });
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [platformCodeLeaders, setPlatformCodeLeaders] = useState<Array<{ leaderId: string; leaderName: string }>>([]);
@@ -103,7 +106,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         leaderId: user.leaderId || "",
         password: "",
         donationAmount: user.donationAmount?.toString() || "0",
-        totalAsset: user.totalAsset?.toString() || "0",
+        paymentMethod: "bank:BPI",
         kycStatus: user.kycStatus || "NOT_SUBMITTED",
       });
     } else if (mode === "create") {
@@ -117,11 +120,12 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         leaderId: "",
         password: "",
         donationAmount: "0",
-        totalAsset: "0",
+        paymentMethod: "bank:BPI",
         kycStatus: "NOT_SUBMITTED",
       });
     }
     setErrors({});
+    setReceiptFile(null);
   }, [user, mode, isOpen]);
 
   const validate = () => {
@@ -163,7 +167,7 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
 
     setLoading(true);
     try {
-      const userData: Partial<User> = {
+      const userData: Partial<User> & { paymentMethod: string; receiptFile?: File | null } = {
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
         email: formData.email.trim(),
@@ -172,7 +176,8 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         leaderName: formData.leaderName.trim() || undefined,
         leaderId: formData.leaderId.trim() || undefined,
         donationAmount: parseFloat(formData.donationAmount) || 0,
-        totalAsset: parseFloat(formData.totalAsset) || 0,
+        paymentMethod: formData.paymentMethod?.trim() || "bank:BPI",
+        receiptFile,
         kycStatus: formData.kycStatus,
       };
 
@@ -345,31 +350,56 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Donation Amount</label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={formData.donationAmount}
-                onChange={(e) => setFormData({ ...formData, donationAmount: e.target.value })}
-                placeholder="0.00"
-              />
-            </div>
+          {canEditDonationFields && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Donation Amount</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.donationAmount}
+                    onChange={(e) => setFormData({ ...formData, donationAmount: e.target.value })}
+                    placeholder="0.00"
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Total Asset</label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={formData.totalAsset}
-                onChange={(e) => setFormData({ ...formData, totalAsset: e.target.value })}
-                placeholder="0.00"
-              />
-            </div>
-          </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Payment Method</label>
+                  <Select
+                    value={formData.paymentMethod}
+                    onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select payment method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bank:BPI">Bank:BPI</SelectItem>
+                      <SelectItem value="bank:GoTyme">Bank:GoTyme</SelectItem>
+                      <SelectItem value="gcash:GCash">GCash</SelectItem>
+                      <SelectItem value="maya:Maya">Maya</SelectItem>
+                      <SelectItem value="paypal:PayPal">PayPal</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Receipt Upload</label>
+                <Input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+                />
+                {receiptFile && (
+                  <p className="text-xs text-muted-foreground truncate">
+                    Selected: {receiptFile.name}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
 
           <div className="space-y-2">
             <label className="text-sm font-medium">KYC Status</label>

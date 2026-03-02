@@ -97,6 +97,11 @@ const toIsoString = (value: unknown): string => {
   return new Date().toISOString();
 };
 
+const toMoney = (value: number): number => {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+};
+
 const getLatestUserSnapshotForShare = async (user: User): Promise<User> => {
   try {
     const latestUser = await fetchUserById(user.id);
@@ -1950,9 +1955,11 @@ export const createDonationAdjustment = async (payload: {
   memberUid?: string;
   amountDelta: number;
   note?: string;
+  paymentMethod: string;
+  receiptFile?: File | null;
 }): Promise<void> => {
   const safeUserId = (payload.memberUid || payload.userId || "").trim();
-  const delta = Number(payload.amountDelta || 0);
+  const delta = toMoney(Number(payload.amountDelta || 0));
 
   if (!safeUserId || !Number.isFinite(delta) || delta === 0) {
     return;
@@ -1964,6 +1971,17 @@ export const createDonationAdjustment = async (payload: {
   endDate.setDate(endDate.getDate() + 365);
   const endDateIso = endDate.toISOString();
   const adminUid = auth.currentUser?.uid || "";
+  const paymentMethod = (payload.paymentMethod || "").trim() || "bank:BPI";
+  let receiptPath = "";
+  let receiptURL = "";
+
+  if (payload.receiptFile) {
+    const safeFileName = payload.receiptFile.name.replace(/[^\w.-]/g, "_");
+    receiptPath = `receipts/${safeUserId}/${Date.now()}_${safeFileName}`;
+    const receiptRef = ref(storage, receiptPath);
+    await uploadBytes(receiptRef, payload.receiptFile);
+    receiptURL = await getDownloadURL(receiptRef);
+  }
 
   await addDoc(collection(db, "donationContracts"), {
     userId: safeUserId,
@@ -1977,9 +1995,9 @@ export const createDonationAdjustment = async (payload: {
     reviewNote: payload.note?.trim() || "Admin adjustment from Users form",
     reviewedAt: nowIso,
     reviewedBy: adminUid,
-    paymentMethod: "admin_adjustment",
-    receiptPath: "",
-    receiptURL: "",
+    paymentMethod,
+    receiptPath,
+    receiptURL,
     status: "approved",
     createdAt: nowIso,
     approvedAt: nowIso,
@@ -1993,6 +2011,22 @@ export const createDonationAdjustment = async (payload: {
   });
 };
 
+const uploadDonationReceiptForUser = async (
+  safeUserId: string,
+  receiptFile?: File | null
+): Promise<{ receiptPath: string; receiptURL: string }> => {
+  if (!receiptFile) {
+    return { receiptPath: "", receiptURL: "" };
+  }
+
+  const safeFileName = receiptFile.name.replace(/[^\w.-]/g, "_");
+  const receiptPath = `receipts/${safeUserId}/${Date.now()}_${safeFileName}`;
+  const receiptRef = ref(storage, receiptPath);
+  await uploadBytes(receiptRef, receiptFile);
+  const receiptURL = await getDownloadURL(receiptRef);
+  return { receiptPath, receiptURL };
+};
+
 // Ensure approved donationContracts total matches a target amount for a user.
 // Used by admin-side Users edit to keep donationContracts and members in sync.
 export const syncDonationContractsToTarget = async (payload: {
@@ -2000,9 +2034,11 @@ export const syncDonationContractsToTarget = async (payload: {
   memberUid?: string;
   targetAmount: number;
   note?: string;
+  paymentMethod: string;
+  receiptFile?: File | null;
 }): Promise<void> => {
   const safeUserId = (payload.memberUid || payload.userId || "").trim();
-  const targetAmount = Number(payload.targetAmount || 0);
+  const targetAmount = toMoney(Number(payload.targetAmount || 0));
 
   if (!safeUserId || !Number.isFinite(targetAmount) || targetAmount < 0) {
     return;
@@ -2012,15 +2048,96 @@ export const syncDonationContractsToTarget = async (payload: {
     query(collection(db, "donationContracts"), where("userId", "==", safeUserId))
   );
 
-  const currentApprovedTotal = contractsSnapshot.docs.reduce((sum, docSnapshot) => {
-    const data = docSnapshot.data();
-    const status = String(data.status || "").toLowerCase();
-    if (status !== "approved" && status !== "active") return sum;
-    return sum + Number(data.donationAmount || 0);
-  }, 0);
+  const approvedContracts = contractsSnapshot.docs
+    .map((docSnapshot) => ({
+      id: docSnapshot.id,
+      data: docSnapshot.data(),
+    }))
+    .filter(({ data }) => {
+      const status = String(data.status || "").toLowerCase();
+      return status === "approved" || status === "active";
+    });
 
-  const delta = targetAmount - currentApprovedTotal;
-  if (!Number.isFinite(delta) || delta === 0) {
+  const currentApprovedTotal = toMoney(
+    approvedContracts.reduce((sum, { data }) => sum + Number(data.donationAmount || 0), 0)
+  );
+
+  const parseCreatedAtMs = (value: unknown) => {
+    const parsed = new Date(String(value || "")).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const sortedApprovedContracts = [...approvedContracts].sort(
+    (a, b) => parseCreatedAtMs(b.data.createdAt) - parseCreatedAtMs(a.data.createdAt)
+  );
+
+  const latestApprovedContract = sortedApprovedContracts[0];
+  const latestAdminAdjustmentContract = sortedApprovedContracts.find(
+    ({ data }) => Boolean(data.isAdminAdjustment)
+  );
+
+  const delta = toMoney(targetAmount - currentApprovedTotal);
+  if (!Number.isFinite(delta)) {
+    return;
+  }
+
+  if (delta === 0) {
+    // No amount change means no adjustment is needed.
+    // If admin uploaded a receipt, attach it to the latest admin adjustment,
+    // or fallback to latest approved contract.
+    if (!payload.receiptFile) {
+      return;
+    }
+
+    const targetContract = latestAdminAdjustmentContract || latestApprovedContract;
+    if (!targetContract) {
+      return;
+    }
+
+    const { receiptPath, receiptURL } = await uploadDonationReceiptForUser(
+      safeUserId,
+      payload.receiptFile
+    );
+
+    await updateDoc(doc(db, "donationContracts", targetContract.id), {
+      receiptPath,
+      receiptURL,
+      paymentMethod: payload.paymentMethod?.trim() || "bank:BPI",
+      updatedAt: new Date().toISOString(),
+    });
+    return;
+  }
+
+  if (latestAdminAdjustmentContract) {
+    const currentAdjustmentAmount = toMoney(
+      Number(latestAdminAdjustmentContract.data.donationAmount || 0)
+    );
+    const nextAdjustmentAmount = toMoney(currentAdjustmentAmount + delta);
+    const nowIso = new Date().toISOString();
+    const adminUid = auth.currentUser?.uid || "";
+    const updatePayload: Record<string, unknown> = {
+      donationAmount: nextAdjustmentAmount,
+      verifiedAmount: nextAdjustmentAmount,
+      discrepancyAmount: 0,
+      hasDiscrepancy: false,
+      reviewOutcome: "approved_exact",
+      reviewNote: payload.note?.trim() || "Donation contracts synced from Users edit form",
+      reviewedAt: nowIso,
+      reviewedBy: adminUid,
+      paymentMethod: payload.paymentMethod?.trim() || "bank:BPI",
+      updatedAt: nowIso,
+    };
+
+    if (payload.receiptFile) {
+      const { receiptPath, receiptURL } = await uploadDonationReceiptForUser(
+        safeUserId,
+        payload.receiptFile
+      );
+      updatePayload.receiptPath = receiptPath;
+      updatePayload.receiptURL = receiptURL;
+    }
+
+    await updateDoc(doc(db, "donationContracts", latestAdminAdjustmentContract.id), updatePayload);
     return;
   }
 
@@ -2029,6 +2146,8 @@ export const syncDonationContractsToTarget = async (payload: {
     memberUid: safeUserId,
     amountDelta: delta,
     note: payload.note?.trim() || "Donation contracts synced from Users edit form",
+    paymentMethod: payload.paymentMethod?.trim() || "bank:BPI",
+    receiptFile: payload.receiptFile || null,
   });
 };
 
