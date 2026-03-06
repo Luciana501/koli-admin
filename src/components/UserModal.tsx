@@ -4,6 +4,7 @@ import { IconX } from "@tabler/icons-react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AnimatePresence, motion } from "motion/react";
 
 interface UserModalProps {
   isOpen: boolean;
@@ -16,7 +17,12 @@ interface DonationContractEntry {
   amount: number;
   status: string;
   paymentMethod: string;
+  contractType: string;
   createdAt: string;
+  donationStartDate?: string;
+  contractEndDate?: string;
+  totalWithdrawn?: number;
+  withdrawalsCount?: number;
 }
 
 const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
@@ -25,6 +31,7 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
   const [isLoadingStats, setIsLoadingStats] = useState<boolean>(false);
   const [donationEntries, setDonationEntries] = useState<DonationContractEntry[]>([]);
   const [isLoadingDonations, setIsLoadingDonations] = useState<boolean>(false);
+  const [selectedContractEntry, setSelectedContractEntry] = useState<DonationContractEntry | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -93,7 +100,12 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
               amount: Number.isFinite(effectiveAmount) ? effectiveAmount : 0,
               status: String(data.status || "pending"),
               paymentMethod: String(data.paymentMethod || "N/A"),
+              contractType: String(data.contractType || "N/A"),
               createdAt: normalizeIso(data.createdAt),
+              donationStartDate: data.donationStartDate ? normalizeIso(data.donationStartDate) : undefined,
+              contractEndDate: data.contractEndDate ? normalizeIso(data.contractEndDate) : undefined,
+              totalWithdrawn: Number(data.totalWithdrawn || 0),
+              withdrawalsCount: Number(data.withdrawalsCount || 0),
             });
           });
         });
@@ -150,6 +162,108 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
     });
   };
 
+  const getContractTypeLabel = (contractType?: string) => {
+    switch (contractType) {
+      case "monthly_12_no_principal":
+        return "30% Monthly for 1 Year";
+      case "lockin_6_compound":
+        return "6-Month Lock-In (Compounded)";
+      case "lockin_12_compound":
+        return "12-Month Lock-In (Compounded)";
+      default:
+        return contractType || "N/A";
+    }
+  };
+
+  const getLockInMonths = (contractType?: string) => {
+    if (!contractType) return 0;
+    const match = contractType.match(/^lockin_(\d+)_compound$/i);
+    return match ? Number(match[1]) : 0;
+  };
+
+  const formatValue = (value: number) => {
+    if (!Number.isFinite(value)) return "0.0";
+    return value.toLocaleString("en-US", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    });
+  };
+
+  const formatDateLabel = (dateValue: Date) =>
+    dateValue.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+  const calculateContractPreview = (entry: DonationContractEntry) => {
+    const now = new Date();
+    const principal = Number(entry.amount || 0);
+    const safePrincipal = Number.isFinite(principal) ? principal : 0;
+    const startDate = entry.donationStartDate ? new Date(entry.donationStartDate) : new Date(entry.createdAt);
+    const safeStartDate = Number.isNaN(startDate.getTime()) ? now : startDate;
+    const totalWithdrawn = Number(entry.totalWithdrawn || 0);
+    const lockInMonths = getLockInMonths(entry.contractType);
+    const isCompound = lockInMonths > 0;
+
+    if (isCompound) {
+      const projectedUnlockAmount = safePrincipal * Math.pow(1.3, lockInMonths);
+      const maturityDate = entry.contractEndDate
+        ? new Date(entry.contractEndDate)
+        : new Date(new Date(safeStartDate).setMonth(safeStartDate.getMonth() + lockInMonths));
+      const isMatured = !Number.isNaN(maturityDate.getTime()) && now.getTime() >= maturityDate.getTime();
+      const currentlyAvailable = isMatured ? Math.max(0, projectedUnlockAmount - totalWithdrawn) : 0;
+
+      return {
+        isCompound: true,
+        lockInMonths,
+        principal: safePrincipal,
+        projectedTotal: projectedUnlockAmount,
+        currentlyAvailable,
+        totalWithdrawn,
+        firstUnlockDate: formatDateLabel(maturityDate),
+        contractEndDate: formatDateLabel(maturityDate),
+      };
+    }
+
+    const amountPerPeriod = safePrincipal * 0.3;
+    const planMonths = 12;
+    const maxTotalWithdrawal = amountPerPeriod * planMonths;
+    const inferredWithdrawn = entry.totalWithdrawn ?? (entry.withdrawalsCount || 0) * amountPerPeriod;
+    const daysSinceStart = Math.max(
+      0,
+      Math.floor((now.getTime() - safeStartDate.getTime()) / (1000 * 60 * 60 * 24))
+    );
+    const periodsElapsed = Math.floor(daysSinceStart / 30);
+    const accumulatedAmount = Math.min(periodsElapsed * amountPerPeriod, maxTotalWithdrawal);
+    const currentlyAvailable = Math.max(0, accumulatedAmount - inferredWithdrawn);
+    const firstWithdrawalDate = new Date(safeStartDate);
+    firstWithdrawalDate.setDate(firstWithdrawalDate.getDate() + 30);
+    const contractEndDate = new Date(safeStartDate);
+    contractEndDate.setMonth(contractEndDate.getMonth() + planMonths);
+
+    return {
+      isCompound: false,
+      lockInMonths: planMonths,
+      principal: safePrincipal,
+      projectedTotal: maxTotalWithdrawal,
+      currentlyAvailable,
+      totalWithdrawn: inferredWithdrawn,
+      amountPerPeriod,
+      firstUnlockDate: formatDateLabel(firstWithdrawalDate),
+      contractEndDate: formatDateLabel(contractEndDate),
+    };
+  };
+
+  const buildCompoundProjection = (principal: number, months: number) => {
+    const rows: Array<{ month: number; principalStart: number; interest: number; principalEnd: number }> = [];
+    let runningPrincipal = principal;
+    for (let month = 1; month <= months; month += 1) {
+      const principalStart = runningPrincipal;
+      const interest = principalStart * 0.3;
+      const principalEnd = principalStart + interest;
+      rows.push({ month, principalStart, interest, principalEnd });
+      runningPrincipal = principalEnd;
+    }
+    return rows;
+  };
+
   const contractsTotalDonations = donationEntries.reduce((sum, entry) => {
     const normalized = entry.status.toLowerCase();
     if (normalized !== "approved" && normalized !== "active") return sum;
@@ -158,6 +272,13 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
 
   const donationSummaryAmount =
     donationEntries.length > 0 ? contractsTotalDonations : user?.donationAmount || 0;
+  const selectedContractPreview = selectedContractEntry
+    ? calculateContractPreview(selectedContractEntry)
+    : null;
+  const selectedProjectionRows =
+    selectedContractPreview && selectedContractPreview.isCompound
+      ? buildCompoundProjection(selectedContractPreview.principal, selectedContractPreview.lockInMonths)
+      : [];
 
   if (!isOpen || !user) return null;
 
@@ -267,14 +388,26 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
                               day: "numeric",
                             })}{" "} - {entry.paymentMethod}
                           </p>
+                          <p className="text-xs text-muted-foreground">
+                            Contract: {entry.contractType}
+                          </p>
                         </div>
-                        <span
-                          className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${getDonationStatusClassName(
-                            entry.status
-                          )}`}
-                        >
-                          {formatDonationStatus(entry.status)}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedContractEntry(entry)}
+                            className="inline-flex px-2.5 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                          >
+                            View
+                          </button>
+                          <span
+                            className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${getDonationStatusClassName(
+                              entry.status
+                            )}`}
+                          >
+                            {formatDonationStatus(entry.status)}
+                          </span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -316,6 +449,115 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
           </button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {selectedContractEntry && selectedContractPreview && (
+          <motion.div
+            className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-foreground/60"
+              onClick={() => setSelectedContractEntry(null)}
+              aria-label="Close contract preview"
+            />
+            <motion.div
+              className="relative w-full max-w-2xl bg-card border border-border rounded-lg shadow-xl max-h-[90vh] overflow-y-auto"
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <div className="flex items-center justify-between p-4 border-b border-border">
+                <h3 className="text-base sm:text-lg font-semibold">Donation Contract Preview</h3>
+                <button
+                  type="button"
+                  className="p-1.5 rounded-md hover:bg-accent transition-colors"
+                  onClick={() => setSelectedContractEntry(null)}
+                  aria-label="Close"
+                >
+                  <IconX className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <div className="rounded-lg border border-border bg-muted/40 text-foreground p-4 space-y-3">
+                  <p className="text-xs font-semibold tracking-wide text-muted-foreground">CONTRACT PREVIEW</p>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Contract Type</p>
+                    <div className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium">
+                      {getContractTypeLabel(selectedContractEntry.contractType)}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-muted-foreground">Initial Principal:</span>
+                      <span className="font-semibold text-right break-words max-w-[14rem]">{formatValue(selectedContractPreview.principal)} KOLI</span>
+                    </div>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-muted-foreground">Selected Plan:</span>
+                      <span className="font-semibold text-right break-words max-w-[14rem]">
+                        {getContractTypeLabel(selectedContractEntry.contractType)}
+                      </span>
+                    </div>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-muted-foreground">
+                        {selectedContractPreview.isCompound ? "Unlock Date:" : "First Withdrawal:"}
+                      </span>
+                      <span className="font-semibold text-right break-words max-w-[14rem]">{selectedContractPreview.firstUnlockDate}</span>
+                    </div>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-muted-foreground">
+                        {selectedContractPreview.isCompound ? "Lock-In:" : "Payout/Period:"}
+                      </span>
+                      <span className="font-semibold text-right break-words max-w-[14rem]">
+                        {selectedContractPreview.isCompound
+                          ? `${selectedContractPreview.lockInMonths} months (no withdrawals)`
+                          : `30% (${formatValue(selectedContractPreview.amountPerPeriod || 0)} KOLI)`}
+                      </span>
+                    </div>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-muted-foreground">
+                        {selectedContractPreview.isCompound ? "Est. Unlock Amount:" : "Max Total Withdrawal:"}
+                      </span>
+                      <span className="font-bold text-emerald-600 text-right break-words max-w-[14rem]">
+                        {formatValue(selectedContractPreview.projectedTotal)} KOLI
+                      </span>
+                    </div>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-muted-foreground">Contract Ends:</span>
+                      <span className="font-semibold text-right break-words max-w-[14rem]">{selectedContractPreview.contractEndDate}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedContractPreview.isCompound && (
+                  <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground">LOCK-IN BREAKDOWN (ESTIMATED)</p>
+                    <div className="max-h-52 overflow-y-auto rounded-md border border-border bg-background">
+                      {selectedProjectionRows.map((row) => (
+                        <div
+                          key={row.month}
+                          className="grid grid-cols-4 gap-2 px-3 py-2 text-[11px] border-b border-border last:border-b-0"
+                        >
+                          <span className="text-muted-foreground">M{row.month}</span>
+                          <span className="text-muted-foreground">{formatValue(row.principalStart)}</span>
+                          <span className="text-emerald-600">+{formatValue(row.interest)}</span>
+                          <span className="font-semibold">{formatValue(row.principalEnd)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

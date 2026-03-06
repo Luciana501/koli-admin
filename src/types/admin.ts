@@ -71,6 +71,8 @@ export interface Donation {
   id: string;
   userId: string;
   donationAmount: number;
+  contractType?: string | null;
+  totalWithdrawn?: number;
   verifiedAmount?: number | null;
   discrepancyAmount?: number | null;
   hasDiscrepancy?: boolean;

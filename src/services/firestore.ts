@@ -1201,6 +1201,7 @@ export const subscribeToDonations = (callback: (donations: Donation[]) => void) 
         userEmail,
         userPhone,
         donationAmount: data.donationAmount || 0,
+        contractType: data.contractType || null,
         verifiedAmount:
           typeof data.verifiedAmount === "number" ? data.verifiedAmount : null,
         discrepancyAmount:
@@ -1226,6 +1227,7 @@ export const subscribeToDonations = (callback: (donations: Donation[]) => void) 
         contractEndDate: data.contractEndDate || null,
         donationStartDate: data.donationStartDate || null,
         lastWithdrawalDate: data.lastWithdrawalDate || null,
+        totalWithdrawn: Number(data.totalWithdrawn || 0),
         withdrawalsCount: data.withdrawalsCount || 0,
       };
     });
