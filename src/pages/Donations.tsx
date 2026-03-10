@@ -58,6 +58,7 @@ const Donations = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [amountFilter, setAmountFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [sortOrder, setSortOrder] = useState<"latest" | "oldest">("latest");
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
@@ -125,6 +126,15 @@ const Donations = () => {
         paymentMethodFilter === "all" ||
         donation.paymentMethod.toLowerCase().includes(paymentMethodFilter.toLowerCase());
 
+      let matchesStatus = true;
+      if (statusFilter && statusFilter !== "all") {
+        if (statusFilter === "approved") {
+          matchesStatus = donation.status === "approved" || donation.status === "active";
+        } else if (statusFilter === "rejected") {
+          matchesStatus = donation.status === "rejected";
+        }
+      }
+
       let matchesDate = true;
       if (dateFromFilter) {
         const donationDate = new Date(donation.createdAt);
@@ -137,7 +147,7 @@ const Donations = () => {
         matchesDate = donationDate <= toDate;
       }
 
-      return matchesSearch && matchesAmount && matchesPaymentMethod && matchesDate;
+      return matchesSearch && matchesAmount && matchesPaymentMethod && matchesStatus && matchesDate;
     });
 
     return [...filtered].sort((a, b) => {
@@ -148,7 +158,37 @@ const Donations = () => {
       }
       return createdAtA - createdAtB;
     });
-  }, [historySourceDonations, searchTerm, amountFilter, paymentMethodFilter, sortOrder, dateFromFilter, dateToFilter, minAmount, maxAmount]);
+  }, [historySourceDonations, searchTerm, amountFilter, paymentMethodFilter, statusFilter, sortOrder, dateFromFilter, dateToFilter, minAmount, maxAmount]);
+
+  const historyTotalAmount = useMemo(
+    () =>
+      historyDonations.reduce(
+        (sum, donation) => sum + Number(donation.verifiedAmount ?? donation.donationAmount ?? 0),
+        0
+      ),
+    [historyDonations]
+  );
+
+  const acceptedHistoryDonations = useMemo(
+    () => historyDonations.filter((donation) => donation.status === "approved" || donation.status === "active"),
+    [historyDonations]
+  );
+
+  const acceptedTotalAmount = useMemo(
+    () =>
+      acceptedHistoryDonations.reduce(
+        (sum, donation) => sum + Number(donation.verifiedAmount ?? donation.donationAmount ?? 0),
+        0
+      ),
+    [acceptedHistoryDonations]
+  );
+
+  const acceptedAverageAmount =
+    acceptedHistoryDonations.length > 0 ? acceptedTotalAmount / acceptedHistoryDonations.length : 0;
+  const rejectedCount = useMemo(
+    () => historyDonations.filter((donation) => donation.status === "rejected").length,
+    [historyDonations]
+  );
   
   const totalPages = Math.ceil(pendingDonations.length / itemsPerPage);
   const historyTotalPages = Math.ceil(historyDonations.length / itemsPerPage);
@@ -170,6 +210,7 @@ const Donations = () => {
     searchTerm ||
     amountFilter !== "all" ||
     paymentMethodFilter !== "all" ||
+    statusFilter !== "all" ||
     sortOrder !== "latest" ||
     dateFromFilter ||
     dateToFilter ||
@@ -178,12 +219,13 @@ const Donations = () => {
 
   useEffect(() => {
     setHistoryPage(1);
-  }, [searchTerm, amountFilter, paymentMethodFilter, sortOrder, dateFromFilter, dateToFilter, minAmount, maxAmount]);
+  }, [searchTerm, amountFilter, paymentMethodFilter, statusFilter, sortOrder, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
   const clearFilters = () => {
     setSearchTerm("");
     setAmountFilter("all");
     setPaymentMethodFilter("all");
+    setStatusFilter("all");
     setSortOrder("latest");
     setDateFromFilter("");
     setDateToFilter("");
@@ -720,7 +762,7 @@ const Donations = () => {
                 className="w-full pl-10 pr-4 py-2 text-sm rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
-            <div className="flex gap-2 items-center">
+            <div className="flex flex-wrap gap-2 items-center">
               <Button
                 variant="outline"
                 size="sm"
@@ -736,15 +778,33 @@ const Donations = () => {
                   <IconX className="h-4 w-4" />
                 </Button>
               )}
-              <div className="text-sm font-medium text-muted-foreground ml-2">
-                Total Donations: {historyDonations.length}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border bg-background overflow-hidden">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x">
+              <div className="px-4 py-3">
+                <p className="text-xs text-muted-foreground">Approved Donations</p>
+                <p className="text-2xl font-semibold">{acceptedHistoryDonations.length}</p>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-xs text-muted-foreground">Total Donations</p>
+                <p className="text-2xl font-semibold">₱{acceptedTotalAmount.toLocaleString()}</p>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-xs text-muted-foreground">Average</p>
+                <p className="text-2xl font-semibold">₱{Math.round(acceptedAverageAmount).toLocaleString()}</p>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-xs text-muted-foreground">Rejected Donations</p>
+                <p className="text-2xl font-semibold">{rejectedCount}</p>
               </div>
             </div>
           </div>
 
           {showFilters && (
             <div className="bg-muted/50 p-4 rounded-lg space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Sort By</label>
                   <Select value={sortOrder} onValueChange={(value: "latest" | "oldest") => setSortOrder(value)}>
@@ -754,6 +814,20 @@ const Donations = () => {
                     <SelectContent>
                       <SelectItem value="latest">Latest First</SelectItem>
                       <SelectItem value="oldest">Oldest First</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Status</label>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="All status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="approved">Approved</SelectItem>
+                      <SelectItem value="rejected">Rejected</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -829,7 +903,7 @@ const Donations = () => {
                 </div>
               </div>
 
-              <div className="text-sm text-muted-foreground">
+              <div className="text-xs text-muted-foreground">
                 Showing {historyDonations.length} of {historySourceDonations.length} donations
               </div>
             </div>
@@ -912,9 +986,10 @@ const Donations = () => {
             </div>
 
             <div className="hidden md:block overflow-x-auto max-h-[55vh] overflow-y-auto">
-                <table className="w-full min-w-[800px]">
+                <table className="w-full min-w-[860px]">
                   <thead>
                     <tr className="border-b border-border bg-muted/50">
+                      <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">#</th>
                       <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">User</th>
                       <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">Amount</th>
                       <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground whitespace-nowrap">Payment Method</th>
@@ -924,8 +999,11 @@ const Donations = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedHistory.map((donation) => (
+                    {paginatedHistory.map((donation, index) => (
                       <tr key={donation.id} className="border-b border-border hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3 text-sm text-muted-foreground whitespace-nowrap">
+                          {historyStartIndex + index + 1}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="space-y-1">
                             <p className="font-medium text-sm">{donation.userName || "Loading..."}</p>
