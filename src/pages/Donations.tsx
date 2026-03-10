@@ -160,15 +160,6 @@ const Donations = () => {
     });
   }, [historySourceDonations, searchTerm, amountFilter, paymentMethodFilter, statusFilter, sortOrder, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
-  const historyTotalAmount = useMemo(
-    () =>
-      historyDonations.reduce(
-        (sum, donation) => sum + Number(donation.verifiedAmount ?? donation.donationAmount ?? 0),
-        0
-      ),
-    [historyDonations]
-  );
-
   const acceptedHistoryDonations = useMemo(
     () => historyDonations.filter((donation) => donation.status === "approved" || donation.status === "active"),
     [historyDonations]
@@ -1570,5 +1561,4 @@ const Donations = () => {
 };
 
 export default Donations;
-
 

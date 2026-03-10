@@ -83,7 +83,7 @@ export interface Donation {
   paymentMethod: string;
   receiptPath: string;
   receiptURL: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "active";
   createdAt: string;
   approvedAt?: string | null;
   approvedBy?: string | null;
