@@ -5,6 +5,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AnimatePresence, motion } from "motion/react";
+import { deleteDonationContract } from "@/services/firestore";
 
 interface UserModalProps {
   isOpen: boolean;
@@ -32,6 +33,8 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
   const [donationEntries, setDonationEntries] = useState<DonationContractEntry[]>([]);
   const [isLoadingDonations, setIsLoadingDonations] = useState<boolean>(false);
   const [selectedContractEntry, setSelectedContractEntry] = useState<DonationContractEntry | null>(null);
+  const [isDeletingContract, setIsDeletingContract] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -270,8 +273,7 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
     return sum + entry.amount;
   }, 0);
 
-  const donationSummaryAmount =
-    donationEntries.length > 0 ? contractsTotalDonations : user?.donationAmount || 0;
+  const donationSummaryAmount = contractsTotalDonations;
   const selectedContractPreview = selectedContractEntry
     ? calculateContractPreview(selectedContractEntry)
     : null;
@@ -281,6 +283,21 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
       : [];
 
   if (!isOpen || !user) return null;
+
+  const handleDeleteContract = async () => {
+    if (!selectedContractEntry || isDeletingContract) return;
+    setIsDeletingContract(true);
+    try {
+      await deleteDonationContract(selectedContractEntry.id);
+      setDonationEntries((prev) => prev.filter((entry) => entry.id !== selectedContractEntry.id));
+      setSelectedContractEntry(null);
+      setIsDeleteConfirmOpen(false);
+    } catch (error) {
+      console.error("Failed to delete donation contract:", error);
+    } finally {
+      setIsDeletingContract(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
@@ -553,6 +570,67 @@ const UserModal: React.FC<UserModalProps> = ({ isOpen, onClose, user }) => {
                     </div>
                   </div>
                 )}
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsDeleteConfirmOpen(true)}
+                    disabled={isDeletingContract}
+                    className="px-3 py-2 rounded-md bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {isDeletingContract ? "Deleting..." : "Delete Entry"}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isDeleteConfirmOpen && selectedContractEntry && (
+          <motion.div
+            className="fixed inset-0 z-[90] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              className="absolute inset-0 bg-foreground/60"
+              onClick={() => setIsDeleteConfirmOpen(false)}
+              aria-label="Close delete confirmation"
+            />
+            <motion.div
+              className="relative w-full max-w-sm rounded-lg border border-border bg-card shadow-xl p-4 space-y-3"
+              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+            >
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">Delete donation entry?</p>
+                <p className="text-xs text-muted-foreground">
+                  This will permanently delete the selected donation entry. This action cannot be undone.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-accent"
+                  onClick={() => setIsDeleteConfirmOpen(false)}
+                  disabled={isDeletingContract}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteContract}
+                  disabled={isDeletingContract}
+                  className="px-3 py-2 rounded-md bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isDeletingContract ? "Deleting..." : "Delete"}
+                </button>
               </div>
             </motion.div>
           </motion.div>

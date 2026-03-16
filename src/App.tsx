@@ -5,6 +5,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { AdminType } from "@/types/admin";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import Login from "./pages/Login";
 import AdminLayout from "./components/AdminLayout";
 import NotFound from "./pages/NotFound";
@@ -19,20 +21,36 @@ const KYC = React.lazy(() => import("./pages/KYC"));
 const Reports = React.lazy(() => import("./pages/Reports"));
 const Chat = React.lazy(() => import("./pages/Chat"));
 const ChatList = React.lazy(() => import("./pages/ChatList"));
+const Settings = React.lazy(() => import("./pages/Settings"));
 const ManaRewardPage = React.lazy(() => import("./pages/ManaReward"));
 const RewardHistory = React.lazy(() => import("./pages/RewardHistory"));
 const PlatformCodes = React.lazy(() => import("./pages/PlatformCodes"));
 const NewsCreation = React.lazy(() => import("./pages/NewsCreation"));
 const NewsManage = React.lazy(() => import("./pages/NewsManage"));
 const AppVersion = React.lazy(() => import("./pages/AppVersion"));
-const PresaleAdmin = React.lazy(() => import("./pages/PresaleAdmin"));
 
 const queryClient = new QueryClient();
 
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated } = useAuth();
-  if (!isAuthenticated) {
+const getDefaultRoute = (adminType: AdminType | null) => {
+  return adminType === "kyc" ? "/kyc" : "/dashboard";
+};
+
+const ProtectedRoute = ({
+  children,
+  allow,
+}: {
+  children: React.ReactNode;
+  allow?: AdminType[];
+}) => {
+  const { isAuthenticated, adminType, loading } = useAuth();
+  if (loading) {
+    return <PageLoading className="min-h-[70vh]" />;
+  }
+  if (!isAuthenticated || !adminType) {
     return <Navigate to="/" replace />;
+  }
+  if (allow && !allow.includes(adminType)) {
+    return <Navigate to={getDefaultRoute(adminType)} replace />;
   }
   return (
     <AdminLayout>
@@ -44,18 +62,25 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 const AppRoutes = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, adminType, loading } = useAuth();
+  if (loading) {
+    return <PageLoading className="min-h-[70vh]" />;
+  }
   
   return (
     <Routes>
       <Route 
         path="/" 
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} 
+        element={
+          isAuthenticated
+            ? <Navigate to={getDefaultRoute(adminType)} replace />
+            : <Login />
+        } 
       />
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allow={["developer", "finance"]}>
             <Dashboard />
           </ProtectedRoute>
         }
@@ -63,7 +88,7 @@ const AppRoutes = () => {
       <Route
         path="/users"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allow={["developer", "finance"]}>
             <Users />
           </ProtectedRoute>
         }
@@ -71,7 +96,7 @@ const AppRoutes = () => {
       <Route
         path="/withdrawals"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allow={["developer", "finance"]}>
             <Withdrawals />
           </ProtectedRoute>
         }
@@ -79,7 +104,7 @@ const AppRoutes = () => {
       <Route
         path="/donations"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allow={["developer", "finance"]}>
             <Donations />
           </ProtectedRoute>
         }
@@ -87,7 +112,7 @@ const AppRoutes = () => {
       <Route
         path="/kyc"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allow={["developer", "finance", "kyc"]}>
             <KYC />
           </ProtectedRoute>
         }
@@ -95,7 +120,7 @@ const AppRoutes = () => {
       <Route
         path="/reports"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allow={["developer", "finance"]}>
             <Reports />
           </ProtectedRoute>
         }
@@ -103,7 +128,7 @@ const AppRoutes = () => {
           <Route
             path="/mana-reward"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allow={["developer"]}>
                 <ManaRewardPage />
               </ProtectedRoute>
             }
@@ -111,7 +136,7 @@ const AppRoutes = () => {
           <Route
             path="/reward-history"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allow={["developer"]}>
                 <RewardHistory />
               </ProtectedRoute>
             }
@@ -119,7 +144,7 @@ const AppRoutes = () => {
           <Route
             path="/platform-codes"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allow={["developer"]}>
                 <PlatformCodes />
               </ProtectedRoute>
             }
@@ -127,7 +152,7 @@ const AppRoutes = () => {
           <Route
             path="/news"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allow={["developer"]}>
                 <NewsCreation />
               </ProtectedRoute>
             }
@@ -135,7 +160,7 @@ const AppRoutes = () => {
           <Route
             path="/news/manage"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allow={["developer"]}>
                 <NewsManage />
               </ProtectedRoute>
             }
@@ -143,23 +168,15 @@ const AppRoutes = () => {
           <Route
             path="/app-version"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allow={["developer"]}>
                 <AppVersion />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/presale-admin"
-            element={
-              <ProtectedRoute>
-                <PresaleAdmin />
               </ProtectedRoute>
             }
           />
       <Route
         path="/chat"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allow={["developer", "finance"]}>
             <ChatList />
           </ProtectedRoute>
         }
@@ -167,8 +184,16 @@ const AppRoutes = () => {
       <Route
         path="/chat/conversation"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute allow={["developer", "finance"]}>
             <Chat />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute allow={["developer", "finance", "kyc"]}>
+            <Settings />
           </ProtectedRoute>
         }
       />
@@ -179,15 +204,17 @@ const AppRoutes = () => {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <AuthProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
-      </AuthProvider>
-    </TooltipProvider>
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+      <TooltipProvider>
+        <AuthProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <AppRoutes />
+          </BrowserRouter>
+        </AuthProvider>
+      </TooltipProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 

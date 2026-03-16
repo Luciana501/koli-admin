@@ -960,17 +960,13 @@ const Donations = () => {
                         day: 'numeric'
                       })}
                     </span>
-                    {donation.receiptURL ? (
-                      <button
-                        onClick={() => handleViewReceipt(donation)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium"
-                      >
-                        <IconEye className="h-3.5 w-3.5" />
-                        View Receipt
-                      </button>
-                    ) : (
-                      <span className="text-muted-foreground text-xs italic">-</span>
-                    )}
+                    <button
+                      onClick={() => handleViewReceipt(donation)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium"
+                    >
+                      <IconEye className="h-3.5 w-3.5" />
+                      View
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1037,17 +1033,13 @@ const Donations = () => {
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          {donation.receiptURL ? (
-                            <button
-                              onClick={() => handleViewReceipt(donation)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/10 hover:bg-primary/20 text-primary transition-colors text-sm font-medium whitespace-nowrap"
-                            >
-                              <IconEye className="h-4 w-4" />
-                              View
-                            </button>
-                          ) : (
-                            <span className="text-muted-foreground text-sm italic">-</span>
-                          )}
+                          <button
+                            onClick={() => handleViewReceipt(donation)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/10 hover:bg-primary/20 text-primary transition-colors text-sm font-medium whitespace-nowrap"
+                          >
+                            <IconEye className="h-4 w-4" />
+                            View
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -1561,4 +1553,3 @@ const Donations = () => {
 };
 
 export default Donations;
-

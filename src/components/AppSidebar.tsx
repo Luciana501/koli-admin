@@ -28,6 +28,7 @@ import {
   IconTrophy,
   IconKey,
   IconVersions,
+  IconSettings,
 } from "@tabler/icons-react";
 import { subscribeToChatMessages } from "@/services/chat";
 import { auth } from "@/lib/firebase";
@@ -56,6 +57,10 @@ export function AppSidebar() {
   const previousCountsRef = useRef({ odhex: 0, donation: 0, kyc: 0 });
 
   useEffect(() => {
+    if (adminType === "kyc") {
+      setUnreadCount(0);
+      return;
+    }
     const unsubscribe = subscribeToChatMessages((messages) => {
       const currentUserId = auth.currentUser?.uid;
       const unread = messages.filter(
@@ -65,45 +70,56 @@ export function AppSidebar() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [adminType]);
 
   useEffect(() => {
-    const odhexQuery = query(collection(db, "odhexWithdrawals"), where("status", "==", "pending"));
-    const donationQuery = query(collection(db, "donationContracts"), where("status", "==", "pending"));
+    if (!adminType) return;
+
+    const unsubscribeHandlers: Array<() => void> = [];
+
+    if (adminType !== "kyc") {
+      const odhexQuery = query(collection(db, "odhexWithdrawals"), where("status", "==", "pending"));
+      const donationQuery = query(collection(db, "donationContracts"), where("status", "==", "pending"));
+
+      const unsubscribeOdhex = onSnapshot(odhexQuery, (snapshot) => {
+        const currentCount = snapshot.size;
+        setPendingOdhexCount(currentCount);
+
+        if (initializedRef.current.odhex && currentCount > previousCountsRef.current.odhex) {
+          const added = currentCount - previousCountsRef.current.odhex;
+          toast({
+            title: "New Withdrawal Request",
+            description: `${added} new ODHex withdrawal ${added > 1 ? "requests" : "request"} pending.`,
+          });
+        }
+
+        initializedRef.current.odhex = true;
+        previousCountsRef.current.odhex = currentCount;
+      });
+
+      const unsubscribeDonations = onSnapshot(donationQuery, (snapshot) => {
+        const currentCount = snapshot.size;
+        setPendingDonationCount(currentCount);
+
+        if (initializedRef.current.donation && currentCount > previousCountsRef.current.donation) {
+          const added = currentCount - previousCountsRef.current.donation;
+          toast({
+            title: "New Donation Submission",
+            description: `${added} new donation ${added > 1 ? "submissions" : "submission"} pending review.`,
+          });
+        }
+
+        initializedRef.current.donation = true;
+        previousCountsRef.current.donation = currentCount;
+      });
+
+      unsubscribeHandlers.push(unsubscribeOdhex, unsubscribeDonations);
+    } else {
+      setPendingOdhexCount(0);
+      setPendingDonationCount(0);
+    }
+
     const kycQuery = query(collection(db, "members"), where("kycStatus", "==", "PENDING"));
-
-    const unsubscribeOdhex = onSnapshot(odhexQuery, (snapshot) => {
-      const currentCount = snapshot.size;
-      setPendingOdhexCount(currentCount);
-
-      if (initializedRef.current.odhex && currentCount > previousCountsRef.current.odhex) {
-        const added = currentCount - previousCountsRef.current.odhex;
-        toast({
-          title: "New Withdrawal Request",
-          description: `${added} new ODHex withdrawal ${added > 1 ? "requests" : "request"} pending.`,
-        });
-      }
-
-      initializedRef.current.odhex = true;
-      previousCountsRef.current.odhex = currentCount;
-    });
-
-    const unsubscribeDonations = onSnapshot(donationQuery, (snapshot) => {
-      const currentCount = snapshot.size;
-      setPendingDonationCount(currentCount);
-
-      if (initializedRef.current.donation && currentCount > previousCountsRef.current.donation) {
-        const added = currentCount - previousCountsRef.current.donation;
-        toast({
-          title: "New Donation Submission",
-          description: `${added} new donation ${added > 1 ? "submissions" : "submission"} pending review.`,
-        });
-      }
-
-      initializedRef.current.donation = true;
-      previousCountsRef.current.donation = currentCount;
-    });
-
     const unsubscribeKyc = onSnapshot(kycQuery, (snapshot) => {
       const currentCount = snapshot.size;
       setPendingKycCount(currentCount);
@@ -119,37 +135,39 @@ export function AppSidebar() {
       initializedRef.current.kyc = true;
       previousCountsRef.current.kyc = currentCount;
     });
+    unsubscribeHandlers.push(unsubscribeKyc);
 
     return () => {
-      unsubscribeOdhex();
-      unsubscribeDonations();
-      unsubscribeKyc();
+      unsubscribeHandlers.forEach((handler) => handler());
     };
-  }, [toast]);
+  }, [adminType, toast]);
 
   const formatBadge = (count: number) => {
     if (count <= 0) return undefined;
     return count > 9 ? "9+" : String(count);
   };
 
-  const mainLinks: SidebarLink[] = [
-    {
-      label: "Dashboard",
-      href: "/dashboard",
-      icon: IconLayoutDashboard,
-    },
-    {
-      label: "Users",
-      href: "/users",
-      icon: IconUsers,
-    },
-    {
-      label: "ODHex Withdrawals",
-      href: "/withdrawals",
-      icon: IconCash,
-      badge: formatBadge(pendingOdhexCount),
-    },
-  ];
+  const mainLinks: SidebarLink[] =
+    adminType === "kyc"
+      ? []
+      : [
+          {
+            label: "Dashboard",
+            href: "/dashboard",
+            icon: IconLayoutDashboard,
+          },
+          {
+            label: "Users",
+            href: "/users",
+            icon: IconUsers,
+          },
+          {
+            label: "ODHex Withdrawals",
+            href: "/withdrawals",
+            icon: IconCash,
+            badge: formatBadge(pendingOdhexCount),
+          },
+        ];
 
   const adminLinks: SidebarLink[] = [
     ...(adminType === "developer"
@@ -157,7 +175,6 @@ export function AppSidebar() {
           { label: "KYC", href: "/kyc", icon: IconShieldCheck, badge: formatBadge(pendingKycCount) },
           { label: "MANA Reward", href: "/mana-reward", icon: IconStar },
           { label: "Platform Codes", href: "/platform-codes", icon: IconKey },
-          { label: "Presale Admin", href: "/presale-admin", icon: IconCash },
           { label: "Donations", href: "/donations", icon: IconHeart, badge: formatBadge(pendingDonationCount) },
           { label: "Reward History", href: "/reward-history", icon: IconTrophy },
           { label: "News", href: "/news", icon: IconChartLine },
@@ -170,21 +187,27 @@ export function AppSidebar() {
           { label: "Donations", href: "/donations", icon: IconHeart, badge: formatBadge(pendingDonationCount) },
         ]
       : []),
+    ...(adminType === "kyc"
+      ? [{ label: "KYC", href: "/kyc", icon: IconShieldCheck, badge: formatBadge(pendingKycCount) }]
+      : []),
   ];
 
-  const otherLinks: SidebarLink[] = [
-    {
-      label: "Reports",
-      href: "/reports",
-      icon: IconChartLine,
-    },
-    {
-      label: "Chat",
-      href: "/chat",
-      icon: IconMessage,
-      badge: unreadCount > 0 ? (unreadCount > 9 ? "9+" : String(unreadCount)) : undefined,
-    },
-  ];
+  const otherLinks: SidebarLink[] =
+    adminType === "kyc"
+      ? []
+      : [
+          {
+            label: "Reports",
+            href: "/reports",
+            icon: IconChartLine,
+          },
+          {
+            label: "Chat",
+            href: "/chat",
+            icon: IconMessage,
+            badge: unreadCount > 0 ? (unreadCount > 9 ? "9+" : String(unreadCount)) : undefined,
+          },
+        ];
 
   const handleNavigation = (href: string) => {
     navigate(href);
@@ -222,38 +245,40 @@ export function AppSidebar() {
 
       <SidebarContent>
         {/* Main navigation */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainLinks.map((link) => (
-                <SidebarMenuItem key={link.href}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location.pathname === link.href}
-                    tooltip={link.label}
-                  >
-                    <a
-                      href={link.href}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleNavigation(link.href);
-                      }}
+        {mainLinks.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {mainLinks.map((link) => (
+                  <SidebarMenuItem key={link.href}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location.pathname === link.href}
+                      tooltip={link.label}
                     >
-                      <link.icon className="size-4" />
-                      <span>{link.label}</span>
-                    </a>
-                  </SidebarMenuButton>
-                  {link.badge && (
-                    <SidebarMenuBadge className="bg-destructive text-destructive-foreground rounded-full text-[10px] font-bold">
-                      {link.badge}
-                    </SidebarMenuBadge>
-                  )}
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                      <a
+                        href={link.href}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleNavigation(link.href);
+                        }}
+                      >
+                        <link.icon className="size-4" />
+                        <span>{link.label}</span>
+                      </a>
+                    </SidebarMenuButton>
+                    {link.badge && (
+                      <SidebarMenuBadge className="bg-destructive text-destructive-foreground rounded-full text-[10px] font-bold">
+                        {link.badge}
+                      </SidebarMenuBadge>
+                    )}
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         {/* Admin-specific links */}
         {adminLinks.length > 0 && (
@@ -292,42 +317,62 @@ export function AppSidebar() {
         )}
 
         {/* Other links */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Other</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {otherLinks.map((link) => (
-                <SidebarMenuItem key={link.href}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location.pathname === link.href}
-                    tooltip={link.label}
-                  >
-                    <a
-                      href={link.href}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleNavigation(link.href);
-                      }}
+        {otherLinks.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Other</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {otherLinks.map((link) => (
+                  <SidebarMenuItem key={link.href}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location.pathname === link.href}
+                      tooltip={link.label}
                     >
-                      <link.icon className="size-4" />
-                      <span>{link.label}</span>
-                    </a>
-                  </SidebarMenuButton>
-                  {link.badge && (
-                    <SidebarMenuBadge className="bg-destructive text-destructive-foreground rounded-full text-[10px] font-bold">
-                      {link.badge}
-                    </SidebarMenuBadge>
-                  )}
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                      <a
+                        href={link.href}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleNavigation(link.href);
+                        }}
+                      >
+                        <link.icon className="size-4" />
+                        <span>{link.label}</span>
+                      </a>
+                    </SidebarMenuButton>
+                    {link.badge && (
+                      <SidebarMenuBadge className="bg-destructive text-destructive-foreground rounded-full text-[10px] font-bold">
+                        {link.badge}
+                      </SidebarMenuBadge>
+                    )}
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              isActive={location.pathname === "/settings"}
+              tooltip="Settings"
+            >
+              <a
+                href="/settings"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleNavigation("/settings");
+                }}
+              >
+                <IconSettings className="size-4" />
+                <span>Settings</span>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               tooltip="Logout"
@@ -341,15 +386,23 @@ export function AppSidebar() {
             <SidebarMenuButton size="lg" className="cursor-default hover:bg-transparent active:bg-transparent">
               <div className="flex aspect-square size-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
                 <span className="text-sm font-medium">
-                  {adminType === "developer" ? "D" : "F"}
+                  {adminType === "developer" ? "D" : adminType === "finance" ? "F" : "K"}
                 </span>
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">
-                  {adminType === "developer" ? "Developer Admin" : "Finance Admin"}
+                  {adminType === "developer"
+                    ? "Developer Admin"
+                    : adminType === "finance"
+                      ? "Finance Admin"
+                      : "KYC Admin"}
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
-                  {adminType === "developer" ? "Full Access" : "Finance Access"}
+                  {adminType === "developer"
+                    ? "Full Access"
+                    : adminType === "finance"
+                      ? "Finance Access"
+                      : "KYC Access"}
                 </span>
               </div>
             </SidebarMenuButton>

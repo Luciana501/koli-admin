@@ -12,7 +12,6 @@ const PAGE_TITLES: Record<string, string> = {
   "/reports": "Reports",
   "/mana-reward": "MANA Reward",
   "/reward-history": "Reward History",
-  "/presale-admin": "Presale Admin",
   "/chat": "Chat",
   "/chat/conversation": "Conversation",
 };

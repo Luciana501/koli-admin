@@ -15,8 +15,10 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const normalizeAdminType = (type: unknown): AdminType | null => {
-  if (type === "developer" || type === "finance") return type;
+  if (type === "developer" || type === "finance" || type === "kyc") return type;
   if (type === "main") return "developer";
+  if (type === "finance2") return "finance";
+  if (type === "kyc_admin" || type === "kyc-admin") return "kyc";
   return null;
 };
 
@@ -32,8 +34,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           // Fetch admin type from Firestore
           const adminDoc = await getDoc(doc(db, "admins", user.uid));
           if (adminDoc.exists()) {
-            setAdminType(normalizeAdminType(adminDoc.data().type));
-            setIsAuthenticated(true);
+            const normalizedType = normalizeAdminType(adminDoc.data().type);
+            if (normalizedType) {
+              setAdminType(normalizedType);
+              setIsAuthenticated(true);
+            } else {
+              // User exists but admin type is not recognized
+              setIsAuthenticated(false);
+              setAdminType(null);
+            }
           } else {
             // User exists but not an admin
             setIsAuthenticated(false);
@@ -64,13 +73,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // Fetch admin type from Firestore
       const adminDoc = await getDoc(doc(db, "admins", user.uid));
       if (adminDoc.exists()) {
-        setAdminType(normalizeAdminType(adminDoc.data().type));
-        setIsAuthenticated(true);
-        return true;
-      } else {
+        const normalizedType = normalizeAdminType(adminDoc.data().type);
+        if (normalizedType) {
+          setAdminType(normalizedType);
+          setIsAuthenticated(true);
+          return true;
+        }
         await signOut(auth);
         return false;
       }
+      await signOut(auth);
+      return false;
     } catch (error) {
       console.error("Login error:", error);
       return false;

@@ -4,6 +4,8 @@ import { IconX } from "@tabler/icons-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { subscribeToPlatformCodes } from "@/services/firestore";
 
 const buildLeaderValue = (leaderId: string, leaderName: string) =>
@@ -20,7 +22,7 @@ const parseLeaderValue = (value: string) => {
 interface UserFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (userData: Partial<User> & { paymentMethod: string; receiptFile?: File | null }) => Promise<void>;
+  onSave: (userData: Partial<User> & { paymentMethod: string; contractType?: string | null; receiptFile?: File | null }) => Promise<void>;
   user: User | null;
   mode: "create" | "edit";
   canEditDonationFields?: boolean;
@@ -45,6 +47,9 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
     password: "",
     donationAmount: "0",
     paymentMethod: "bank:BPI",
+    contractType: "monthly_12_no_principal",
+    donationStartDate: "",
+    donationNote: "",
     kycStatus: "NOT_SUBMITTED" as "NOT_SUBMITTED" | "PENDING" | "APPROVED" | "REJECTED",
   });
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -105,8 +110,11 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         leaderName: user.leaderName || "",
         leaderId: user.leaderId || "",
         password: "",
-        donationAmount: user.donationAmount?.toString() || "0",
+        donationAmount: "0",
         paymentMethod: "bank:BPI",
+        contractType: "current",
+        donationStartDate: "",
+        donationNote: "",
         kycStatus: user.kycStatus || "NOT_SUBMITTED",
       });
     } else if (mode === "create") {
@@ -121,6 +129,9 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         password: "",
         donationAmount: "0",
         paymentMethod: "bank:BPI",
+        contractType: "monthly_12_no_principal",
+        donationStartDate: "",
+        donationNote: "",
         kycStatus: "NOT_SUBMITTED",
       });
     }
@@ -167,7 +178,16 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
 
     setLoading(true);
     try {
-      const userData: Partial<User> & { paymentMethod: string; receiptFile?: File | null } = {
+      const resolvedContractType =
+        formData.contractType === "current" ? null : formData.contractType || "monthly_12_no_principal";
+
+      const userData: Partial<User> & {
+        paymentMethod: string;
+        contractType?: string | null;
+        donationStartDate?: string | null;
+        donationNote?: string;
+        receiptFile?: File | null;
+      } = {
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
         email: formData.email.trim(),
@@ -177,6 +197,9 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         leaderId: formData.leaderId.trim() || undefined,
         donationAmount: parseFloat(formData.donationAmount) || 0,
         paymentMethod: formData.paymentMethod?.trim() || "bank:BPI",
+        contractType: resolvedContractType,
+        donationStartDate: formData.donationStartDate || null,
+        donationNote: formData.donationNote?.trim() || "",
         receiptFile,
         kycStatus: formData.kycStatus,
       };
@@ -217,207 +240,259 @@ const UserFormModal: React.FC<UserFormModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                First Name <span className="text-destructive">*</span>
-              </label>
-              <Input
-                value={formData.firstName}
-                onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                placeholder="Enter first name"
-                className={errors.firstName ? "border-destructive" : ""}
-              />
-              {errors.firstName && (
-                <p className="text-xs text-destructive">{errors.firstName}</p>
-              )}
-            </div>
+          <Tabs defaultValue="user" className="w-full">
+            <TabsList className="w-full grid grid-cols-2">
+              <TabsTrigger value="user">User Info</TabsTrigger>
+              <TabsTrigger value="financial">Financial</TabsTrigger>
+            </TabsList>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                Last Name <span className="text-destructive">*</span>
-              </label>
-              <Input
-                value={formData.lastName}
-                onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                placeholder="Enter last name"
-                className={errors.lastName ? "border-destructive" : ""}
-              />
-              {errors.lastName && (
-                <p className="text-xs text-destructive">{errors.lastName}</p>
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              Email <span className="text-destructive">*</span>
-            </label>
-            <Input
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              placeholder="Enter email address"
-              className={errors.email ? "border-destructive" : ""}
-            />
-            {errors.email && (
-              <p className="text-xs text-destructive">{errors.email}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              Phone Number <span className="text-destructive">*</span>
-            </label>
-            <Input
-              value={formData.phoneNumber}
-              onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-              placeholder="Enter phone number"
-              className={errors.phoneNumber ? "border-destructive" : ""}
-            />
-            {errors.phoneNumber && (
-              <p className="text-xs text-destructive">{errors.phoneNumber}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              Address <span className="text-destructive">*</span>
-            </label>
-            <Input
-              value={formData.address}
-              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-              placeholder="Enter address"
-              className={errors.address ? "border-destructive" : ""}
-            />
-            {errors.address && (
-              <p className="text-xs text-destructive">{errors.address}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Leader</label>
-            <Select
-              value={selectedLeaderValue}
-              onValueChange={(value) => {
-                if (value === "unassigned") {
-                  setFormData({ ...formData, leaderId: "", leaderName: "" });
-                  return;
-                }
-
-                const parsed = parseLeaderValue(value);
-                setFormData({
-                  ...formData,
-                  leaderId: parsed.leaderId,
-                  leaderName: parsed.leaderName,
-                });
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select leader" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="unassigned">Unassigned</SelectItem>
-                {!hasSelectedLeaderInOptions && selectedLeaderValue !== "unassigned" && (
-                  <SelectItem value={selectedLeaderValue}>
-                    {formData.leaderName || formData.leaderId} (Current)
-                  </SelectItem>
-                )}
-                {leaderOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label} ({option.leaderId || "N/A"})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {mode === "create" && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                Password <span className="text-destructive">*</span>
-              </label>
-              <Input
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                placeholder="Enter password (min 6 characters)"
-                className={errors.password ? "border-destructive" : ""}
-              />
-              {errors.password && (
-                <p className="text-xs text-destructive">{errors.password}</p>
-              )}
-            </div>
-          )}
-
-          {canEditDonationFields && (
-            <>
+            <TabsContent value="user" className="mt-4 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Donation Amount</label>
+                  <label className="text-sm font-medium">
+                    First Name <span className="text-destructive">*</span>
+                  </label>
                   <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.donationAmount}
-                    onChange={(e) => setFormData({ ...formData, donationAmount: e.target.value })}
-                    placeholder="0.00"
+                    value={formData.firstName}
+                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                    placeholder="Enter first name"
+                    className={errors.firstName ? "border-destructive" : ""}
                   />
+                  {errors.firstName && (
+                    <p className="text-xs text-destructive">{errors.firstName}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Payment Method</label>
-                  <Select
-                    value={formData.paymentMethod}
-                    onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select payment method" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="bank:BPI">Bank:BPI</SelectItem>
-                      <SelectItem value="bank:GoTyme">Bank:GoTyme</SelectItem>
-                      <SelectItem value="gcash:GCash">GCash</SelectItem>
-                      <SelectItem value="maya:Maya">Maya</SelectItem>
-                      <SelectItem value="paypal:PayPal">PayPal</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <label className="text-sm font-medium">
+                    Last Name <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    value={formData.lastName}
+                    onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                    placeholder="Enter last name"
+                    className={errors.lastName ? "border-destructive" : ""}
+                  />
+                  {errors.lastName && (
+                    <p className="text-xs text-destructive">{errors.lastName}</p>
+                  )}
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Receipt Upload</label>
+                <label className="text-sm font-medium">
+                  Email <span className="text-destructive">*</span>
+                </label>
                 <Input
-                  type="file"
-                  accept="image/*,application/pdf"
-                  onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="Enter email address"
+                  className={errors.email ? "border-destructive" : ""}
                 />
-                {receiptFile && (
-                  <p className="text-xs text-muted-foreground truncate">
-                    Selected: {receiptFile.name}
-                  </p>
+                {errors.email && (
+                  <p className="text-xs text-destructive">{errors.email}</p>
                 )}
               </div>
-            </>
-          )}
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">KYC Status</label>
-            <Select
-              value={formData.kycStatus}
-              onValueChange={(value: any) => setFormData({ ...formData, kycStatus: value })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="NOT_SUBMITTED">Not Submitted</SelectItem>
-                <SelectItem value="PENDING">Pending</SelectItem>
-                <SelectItem value="APPROVED">Approved</SelectItem>
-                <SelectItem value="REJECTED">Rejected</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Phone Number <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  value={formData.phoneNumber}
+                  onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
+                  placeholder="Enter phone number"
+                  className={errors.phoneNumber ? "border-destructive" : ""}
+                />
+                {errors.phoneNumber && (
+                  <p className="text-xs text-destructive">{errors.phoneNumber}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Address <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  placeholder="Enter address"
+                  className={errors.address ? "border-destructive" : ""}
+                />
+                {errors.address && (
+                  <p className="text-xs text-destructive">{errors.address}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Leader</label>
+                <Select
+                  value={selectedLeaderValue}
+                  onValueChange={(value) => {
+                    if (value === "unassigned") {
+                      setFormData({ ...formData, leaderId: "", leaderName: "" });
+                      return;
+                    }
+
+                    const parsed = parseLeaderValue(value);
+                    setFormData({
+                      ...formData,
+                      leaderId: parsed.leaderId,
+                      leaderName: parsed.leaderName,
+                    });
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select leader" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {!hasSelectedLeaderInOptions && selectedLeaderValue !== "unassigned" && (
+                      <SelectItem value={selectedLeaderValue}>
+                        {formData.leaderName || formData.leaderId} (Current)
+                      </SelectItem>
+                    )}
+                    {leaderOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label} ({option.leaderId || "N/A"})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {mode === "create" && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Password <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    placeholder="Enter password (min 6 characters)"
+                    className={errors.password ? "border-destructive" : ""}
+                  />
+                  {errors.password && (
+                    <p className="text-xs text-destructive">{errors.password}</p>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">KYC Status</label>
+                <Select
+                  value={formData.kycStatus}
+                  onValueChange={(value: any) => setFormData({ ...formData, kycStatus: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NOT_SUBMITTED">Not Submitted</SelectItem>
+                    <SelectItem value="PENDING">Pending</SelectItem>
+                    <SelectItem value="APPROVED">Approved</SelectItem>
+                    <SelectItem value="REJECTED">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="financial" className="mt-4 space-y-4">
+              {canEditDonationFields && (
+                <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      {mode === "edit" ? "Add Donation Entry" : "Donation Amount"}
+                    </label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.donationAmount}
+                        onChange={(e) => setFormData({ ...formData, donationAmount: e.target.value })}
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Payment Method</label>
+                      <Select
+                        value={formData.paymentMethod}
+                        onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select payment method" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="bank:BPI">Bank:BPI</SelectItem>
+                          <SelectItem value="bank:GoTyme">Bank:GoTyme</SelectItem>
+                          <SelectItem value="gcash:GCash">GCash</SelectItem>
+                          <SelectItem value="maya:Maya">Maya</SelectItem>
+                          <SelectItem value="paypal:PayPal">PayPal</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Donation Start Date</label>
+                    <Input
+                      type="date"
+                      value={formData.donationStartDate}
+                      onChange={(e) => setFormData({ ...formData, donationStartDate: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Contract Type</label>
+                    <Select
+                      value={formData.contractType}
+                      onValueChange={(value) => setFormData({ ...formData, contractType: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select contract type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {mode === "edit" && (
+                          <SelectItem value="current">Keep current</SelectItem>
+                        )}
+                        <SelectItem value="monthly_12_no_principal">30% Monthly for 1 Year</SelectItem>
+                        <SelectItem value="lockin_6_compound">6-Month Lock-In (Compounded)</SelectItem>
+                        <SelectItem value="lockin_12_compound">12-Month Lock-In (Compounded)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Receipt Upload</label>
+                    <Input
+                      type="file"
+                      accept="image/*,application/pdf"
+                      onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+                    />
+                    {receiptFile && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        Selected: {receiptFile.name}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Notes</label>
+                    <Textarea
+                      value={formData.donationNote}
+                      onChange={(e) => setFormData({ ...formData, donationNote: e.target.value })}
+                      placeholder="Add a note for this donation entry"
+                      rows={3}
+                    />
+                  </div>
+                </>
+              )}
+            </TabsContent>
+          </Tabs>
 
           <div className="flex gap-3 pt-4">
             <Button

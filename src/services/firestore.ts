@@ -508,6 +508,44 @@ export const subscribeToUsers = (callback: (users: User[]) => void) => {
   return unsubscribe;
 };
 
+// Real-time listener for donationContracts totals (approved/active only), grouped by user id.
+export const subscribeToDonationTotals = (
+  callback: (totalsById: Record<string, number>) => void
+) => {
+  const donationsRef = collection(db, "donationContracts");
+  const unsubscribe = onSnapshot(donationsRef, (snapshot) => {
+    const totals: Record<string, number> = {};
+
+    snapshot.docs.forEach((docSnapshot) => {
+      const data = docSnapshot.data();
+      const status = String(data.status || "").toLowerCase();
+      if (status !== "approved" && status !== "active") return;
+
+      const declaredAmount = Number(data.donationAmount || 0);
+      const verifiedAmount = typeof data.verifiedAmount === "number" ? data.verifiedAmount : null;
+      const effectiveAmount = Number(verifiedAmount ?? declaredAmount);
+      const amount = Number.isFinite(effectiveAmount) ? effectiveAmount : 0;
+
+      const keys = new Set<string>(
+        [data.userId, data.memberId, data.uid]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+      );
+
+      keys.forEach((key) => {
+        totals[key] = (totals[key] || 0) + amount;
+      });
+    });
+
+    callback(totals);
+  }, (error) => {
+    console.error("Error listening to donation totals:", error);
+    callback({});
+  });
+
+  return unsubscribe;
+};
+
 // Share a user profile from one admin role to the other role for validation
 export const shareUserWithOtherAdmin = async (
   user: User,
@@ -1958,6 +1996,8 @@ export const createDonationAdjustment = async (payload: {
   amountDelta: number;
   note?: string;
   paymentMethod: string;
+  contractType?: string | null;
+  donationStartDate?: string | null;
   receiptFile?: File | null;
 }): Promise<void> => {
   const safeUserId = (payload.memberUid || payload.userId || "").trim();
@@ -1967,11 +2007,38 @@ export const createDonationAdjustment = async (payload: {
     return;
   }
 
+  const parseDonationStartDate = (value?: string | null): Date | null => {
+    if (!value) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const parsed = new Date(`${value}T00:00:00`);
+      return Number.isFinite(parsed.getTime()) ? parsed : null;
+    }
+    const parsed = new Date(value);
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
+  };
+
+  const resolveContractEndDate = (start: Date, contractType?: string | null) => {
+    const endDate = new Date(start);
+    switch (contractType) {
+      case "lockin_6_compound":
+        endDate.setMonth(endDate.getMonth() + 6);
+        break;
+      case "lockin_12_compound":
+      case "monthly_12_no_principal":
+      default:
+        endDate.setMonth(endDate.getMonth() + 12);
+        break;
+    }
+    return endDate.toISOString();
+  };
+
   const now = new Date();
+  const parsedStartDate = parseDonationStartDate(payload.donationStartDate);
+  const startDate = parsedStartDate || now;
   const nowIso = now.toISOString();
-  const endDate = new Date(now);
-  endDate.setDate(endDate.getDate() + 365);
-  const endDateIso = endDate.toISOString();
+  const startDateIso = startDate.toISOString();
+  const contractType = payload.contractType || "monthly_12_no_principal";
+  const endDateIso = resolveContractEndDate(startDate, contractType);
   const adminUid = auth.currentUser?.uid || "";
   const paymentMethod = (payload.paymentMethod || "").trim() || "bank:BPI";
   let receiptPath = "";
@@ -1998,13 +2065,14 @@ export const createDonationAdjustment = async (payload: {
     reviewedAt: nowIso,
     reviewedBy: adminUid,
     paymentMethod,
+    contractType,
     receiptPath,
     receiptURL,
     status: "approved",
     createdAt: nowIso,
     approvedAt: nowIso,
     approvedBy: adminUid,
-    donationStartDate: nowIso,
+    donationStartDate: startDateIso,
     contractEndDate: endDateIso,
     lastWithdrawalDate: null,
     withdrawalsCount: 0,
@@ -2037,8 +2105,34 @@ export const syncDonationContractsToTarget = async (payload: {
   targetAmount: number;
   note?: string;
   paymentMethod: string;
+  contractType?: string | null;
+  donationStartDate?: string | null;
   receiptFile?: File | null;
 }): Promise<void> => {
+  const parseDonationStartDate = (value?: string | null): Date | null => {
+    if (!value) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const parsed = new Date(`${value}T00:00:00`);
+      return Number.isFinite(parsed.getTime()) ? parsed : null;
+    }
+    const parsed = new Date(value);
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
+  };
+
+  const resolveContractEndDate = (start: Date, contractType?: string | null) => {
+    const endDate = new Date(start);
+    switch (contractType) {
+      case "lockin_6_compound":
+        endDate.setMonth(endDate.getMonth() + 6);
+        break;
+      case "lockin_12_compound":
+      case "monthly_12_no_principal":
+      default:
+        endDate.setMonth(endDate.getMonth() + 12);
+        break;
+    }
+    return endDate.toISOString();
+  };
   const safeUserId = (payload.memberUid || payload.userId || "").trim();
   const targetAmount = toMoney(Number(payload.targetAmount || 0));
 
@@ -2087,7 +2181,7 @@ export const syncDonationContractsToTarget = async (payload: {
     // No amount change means no adjustment is needed.
     // If admin uploaded a receipt, attach it to the latest admin adjustment,
     // or fallback to latest approved contract.
-    if (!payload.receiptFile) {
+    if (!payload.receiptFile && !payload.contractType && !payload.donationStartDate) {
       return;
     }
 
@@ -2096,17 +2190,44 @@ export const syncDonationContractsToTarget = async (payload: {
       return;
     }
 
+    const nowIso = new Date().toISOString();
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 365);
+    const endDateIso = endDate.toISOString();
+
     const { receiptPath, receiptURL } = await uploadDonationReceiptForUser(
       safeUserId,
       payload.receiptFile
     );
 
-    await updateDoc(doc(db, "donationContracts", targetContract.id), {
+    const updatePayload: Record<string, unknown> = {
       receiptPath,
       receiptURL,
       paymentMethod: payload.paymentMethod?.trim() || "bank:BPI",
-      updatedAt: new Date().toISOString(),
-    });
+      updatedAt: nowIso,
+    };
+
+    if (payload.note?.trim()) {
+      updatePayload.reviewNote = payload.note.trim();
+    }
+
+    if (payload.contractType) {
+      updatePayload.contractType = payload.contractType;
+    }
+
+    const parsedStartDate = parseDonationStartDate(payload.donationStartDate);
+    if (parsedStartDate) {
+      const endDateForType = resolveContractEndDate(parsedStartDate, payload.contractType);
+      updatePayload.donationStartDate = parsedStartDate.toISOString();
+      updatePayload.contractEndDate = endDateForType;
+      updatePayload.approvedAt = nowIso;
+    } else if (!targetContract.data?.donationStartDate) {
+      updatePayload.donationStartDate = nowIso;
+      updatePayload.contractEndDate = endDateIso;
+      updatePayload.approvedAt = nowIso;
+    }
+
+    await updateDoc(doc(db, "donationContracts", targetContract.id), updatePayload);
     return;
   }
 
@@ -2130,6 +2251,24 @@ export const syncDonationContractsToTarget = async (payload: {
       updatedAt: nowIso,
     };
 
+    if (payload.contractType) {
+      updatePayload.contractType = payload.contractType;
+    }
+
+    const parsedStartDate = parseDonationStartDate(payload.donationStartDate);
+    if (parsedStartDate) {
+      const endDateForType = resolveContractEndDate(parsedStartDate, payload.contractType);
+      updatePayload.donationStartDate = parsedStartDate.toISOString();
+      updatePayload.contractEndDate = endDateForType;
+      updatePayload.approvedAt = nowIso;
+    } else if (!latestAdminAdjustmentContract.data?.donationStartDate) {
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + 365);
+      updatePayload.donationStartDate = nowIso;
+      updatePayload.contractEndDate = endDate.toISOString();
+      updatePayload.approvedAt = nowIso;
+    }
+
     if (payload.receiptFile) {
       const { receiptPath, receiptURL } = await uploadDonationReceiptForUser(
         safeUserId,
@@ -2149,6 +2288,8 @@ export const syncDonationContractsToTarget = async (payload: {
     amountDelta: delta,
     note: payload.note?.trim() || "Donation contracts synced from Users edit form",
     paymentMethod: payload.paymentMethod?.trim() || "bank:BPI",
+    contractType: payload.contractType,
+    donationStartDate: payload.donationStartDate,
     receiptFile: payload.receiptFile || null,
   });
 };
@@ -2191,11 +2332,40 @@ export const unsuspendUserAccount = async (userId: string): Promise<void> => {
 
 // Delete user
 export const deleteUser = async (userId: string): Promise<void> => {
+  const deleteDonationContractsForUser = async (ids: string[]) => {
+    const uniqueIds = Array.from(new Set(ids.map((value) => value.trim()).filter(Boolean)));
+    if (uniqueIds.length === 0) return;
+
+    const donationsRef = collection(db, "donationContracts");
+    const fields: Array<"userId" | "uid" | "memberId"> = ["userId", "uid", "memberId"];
+    const snapshots = await Promise.all(
+      uniqueIds.flatMap((idValue) =>
+        fields.map((field) => getDocs(query(donationsRef, where(field, "==", idValue))))
+      )
+    );
+
+    const uniqueDocs = new Map<string, string>();
+    snapshots.forEach((snapshot) => {
+      snapshot.docs.forEach((docSnapshot) => {
+        if (!uniqueDocs.has(docSnapshot.id)) {
+          uniqueDocs.set(docSnapshot.id, docSnapshot.id);
+        }
+      });
+    });
+
+    await Promise.all(
+      Array.from(uniqueDocs.values()).map((docId) => deleteDoc(doc(db, "donationContracts", docId)))
+    );
+  };
+
   const fallbackDeleteFromFirestore = async () => {
     // 1) Try direct members/{userId}
     const directRef = doc(db, "members", userId);
     const directSnap = await getDoc(directRef);
     if (directSnap.exists()) {
+      const directData = directSnap.data();
+      const ids = [userId, String(directData?.uid || "")].filter(Boolean);
+      await deleteDonationContractsForUser(ids);
       await deleteDoc(directRef);
       console.log('User deleted from Firestore by document ID');
       return;
@@ -2204,6 +2374,15 @@ export const deleteUser = async (userId: string): Promise<void> => {
     // 2) Try members where uid == userId
     const byUid = await getDocs(query(collection(db, "members"), where("uid", "==", userId)));
     if (!byUid.empty) {
+      const idsToDelete = new Set<string>();
+      byUid.docs.forEach((d) => {
+        idsToDelete.add(d.id);
+        const data = d.data();
+        if (data?.uid) {
+          idsToDelete.add(String(data.uid));
+        }
+      });
+      await deleteDonationContractsForUser(Array.from(idsToDelete));
       await Promise.all(byUid.docs.map((d) => deleteDoc(doc(db, "members", d.id))));
       console.log(`User deleted from Firestore by uid match (${byUid.size} document(s))`);
       return;
@@ -2266,6 +2445,11 @@ export const deleteUser = async (userId: string): Promise<void> => {
     const errorMessage = error.message || 'Failed to delete user';
     throw new Error(errorMessage);
   }
+};
+
+export const deleteDonationContract = async (donationId: string): Promise<void> => {
+  if (!donationId?.trim()) return;
+  await deleteDoc(doc(db, "donationContracts", donationId));
 };
 
 // Fetch Mana Reward Analytics for Reports

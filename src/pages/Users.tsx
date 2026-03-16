@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { User } from "@/types/admin";
-import { subscribeToUsers, createUser, updateUser, deleteUser, shareUserWithOtherAdmin, shareUserToAdminChat, updateKYCStatus, syncDonationContractsToTarget } from "@/services/firestore";
+import { subscribeToUsers, subscribeToDonationTotals, createUser, updateUser, deleteUser, shareUserWithOtherAdmin, shareUserToAdminChat, updateKYCStatus, syncDonationContractsToTarget } from "@/services/firestore";
 import { IconSearch, IconEye, IconFilter, IconX, IconEdit, IconTrash, IconPlus, IconShare, IconCopy } from "@tabler/icons-react";
 import {
   Pagination,
@@ -50,6 +50,7 @@ const Users = () => {
   };
 
   const [users, setUsers] = useState<User[]>([]);
+  const [donationTotalsById, setDonationTotalsById] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -95,6 +96,11 @@ const Users = () => {
     });
 
     // Cleanup subscription on unmount
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToDonationTotals(setDonationTotalsById);
     return () => unsubscribe();
   }, []);
 
@@ -153,28 +159,33 @@ const Users = () => {
     if (minAsset && user.totalAsset < parseFloat(minAsset)) matchesAsset = false;
     if (maxAsset && user.totalAsset > parseFloat(maxAsset)) matchesAsset = false;
 
+    const userDonationTotal =
+      donationTotalsById[user.id] ??
+      (user.uid ? donationTotalsById[user.uid] : undefined) ??
+      0;
+
     // Donation filter
     let matchesDonation = true;
     if (donationFilter && donationFilter !== "all") {
       switch (donationFilter) {
         case "none":
-          matchesDonation = user.donationAmount === 0;
+          matchesDonation = userDonationTotal === 0;
           break;
         case "low":
-          matchesDonation = user.donationAmount >= 1 && user.donationAmount <= 10000;
+          matchesDonation = userDonationTotal >= 1 && userDonationTotal <= 10000;
           break;
         case "medium":
-          matchesDonation = user.donationAmount >= 10001 && user.donationAmount <= 50000;
+          matchesDonation = userDonationTotal >= 10001 && userDonationTotal <= 50000;
           break;
         case "high":
-          matchesDonation = user.donationAmount > 50000;
+          matchesDonation = userDonationTotal > 50000;
           break;
       }
     }
 
     // Custom donation range
-    if (minDonation && user.donationAmount < parseFloat(minDonation)) matchesDonation = false;
-    if (maxDonation && user.donationAmount > parseFloat(maxDonation)) matchesDonation = false;
+    if (minDonation && userDonationTotal < parseFloat(minDonation)) matchesDonation = false;
+    if (maxDonation && userDonationTotal > parseFloat(maxDonation)) matchesDonation = false;
 
     // KYC status filter
     let matchesKyc = true;
@@ -337,9 +348,9 @@ const Users = () => {
     setIsFormModalOpen(true);
   };
   
-  const handleSaveUser = async (userData: Partial<User> & { paymentMethod: string; receiptFile?: File | null }) => {
+  const handleSaveUser = async (userData: Partial<User> & { paymentMethod: string; contractType?: string | null; donationStartDate?: string | null; donationNote?: string; receiptFile?: File | null }) => {
     try {
-      const { paymentMethod, receiptFile, ...memberUserData } = userData;
+      const { paymentMethod, receiptFile, contractType, donationStartDate, donationNote, ...memberUserData } = userData;
       const canEditDonationFields = adminType === "developer";
 
       if (!canEditDonationFields) {
@@ -351,7 +362,21 @@ const Users = () => {
       }
 
       if (formMode === "create") {
-        await createUser(memberUserData as Omit<User, "id" | "createdAt">);
+        const createdUserId = await createUser(memberUserData as Omit<User, "id" | "createdAt">);
+        const createdDonationAmount = Number(memberUserData.donationAmount || 0);
+
+        if (canEditDonationFields && Number.isFinite(createdDonationAmount) && createdDonationAmount > 0) {
+          await syncDonationContractsToTarget({
+            userId: createdUserId,
+            memberUid: createdUserId,
+            targetAmount: createdDonationAmount,
+            note: donationNote?.trim() || "Donation added in Users create form",
+            paymentMethod: paymentMethod?.trim() || "bank:BPI",
+            contractType: contractType ?? undefined,
+            donationStartDate: donationStartDate || null,
+            receiptFile: receiptFile || null,
+          });
+        }
         toast({
           title: "Success",
           description: "User created successfully",
@@ -367,13 +392,20 @@ const Users = () => {
 
         await updateUser(editingUser.id, memberUserData);
 
-        if (canEditDonationFields && hasDonationUpdate && Number.isFinite(nextDonationAmount)) {
+        const shouldSyncDonationContracts =
+          canEditDonationFields &&
+          Number.isFinite(nextDonationAmount) &&
+          (hasDonationUpdate || Boolean(receiptFile) || Boolean(donationStartDate) || Boolean(contractType));
+
+        if (shouldSyncDonationContracts) {
           await syncDonationContractsToTarget({
             userId: editingUser.id,
             memberUid: editingUser.uid || editingUser.id,
             targetAmount: nextDonationAmount,
-            note: "Donation amount adjusted in Users edit form",
+            note: donationNote?.trim() || "Donation amount adjusted in Users edit form",
             paymentMethod: paymentMethod?.trim() || "bank:BPI",
+            contractType: contractType ?? undefined,
+            donationStartDate: donationStartDate || null,
             receiptFile: receiptFile || null,
           });
         }
@@ -742,7 +774,7 @@ const Users = () => {
                     </div>
                     <div>
                       <span className="text-muted-foreground">Donation: </span>
-                      <span>₱{user.donationAmount.toLocaleString()}</span>
+                      <span>₱{(donationTotalsById[user.id] ?? (user.uid ? donationTotalsById[user.uid] : undefined) ?? 0).toLocaleString()}</span>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Asset: </span>
@@ -822,7 +854,7 @@ const Users = () => {
                     {user.address}
                   </td>
                   <td className="px-4 py-3 text-sm">
-                    ₱{user.donationAmount.toLocaleString()}
+                    ₱{(donationTotalsById[user.id] ?? (user.uid ? donationTotalsById[user.uid] : undefined) ?? 0).toLocaleString()}
                   </td>
                   <td className="px-4 py-3 text-sm font-medium">
                     ₱{user.totalAsset.toLocaleString()}

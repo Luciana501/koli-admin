@@ -65,6 +65,24 @@ exports.deleteUserAccount = onCall(async (request) => {
   try {
     const auth = getAuth();
     const db = getFirestore();
+
+    const idsToMatch = new Set([String(userId || "").trim()].filter(Boolean));
+    try {
+      const memberSnap = await db.collection('members').doc(userId).get();
+      if (memberSnap.exists) {
+        const memberData = memberSnap.data() || {};
+        if (memberData.uid) idsToMatch.add(String(memberData.uid).trim());
+      } else {
+        const byUidSnap = await db.collection('members').where('uid', '==', userId).get();
+        byUidSnap.forEach((docSnap) => {
+          idsToMatch.add(String(docSnap.id).trim());
+          const data = docSnap.data() || {};
+          if (data.uid) idsToMatch.add(String(data.uid).trim());
+        });
+      }
+    } catch (lookupError) {
+      console.warn('Unable to resolve member UID for donation contract cleanup:', lookupError);
+    }
     
     // Delete from Firebase Authentication
     try {
@@ -77,6 +95,34 @@ exports.deleteUserAccount = onCall(async (request) => {
         console.error('Auth deletion error:', authError);
         throw authError;
       }
+    }
+
+    // Delete related donation contracts
+    const donationIds = Array.from(idsToMatch);
+    if (donationIds.length > 0) {
+      const donationRef = db.collection('donationContracts');
+      const fields = ['userId', 'uid', 'memberId'];
+      const snapshots = await Promise.all(
+        donationIds.flatMap((idValue) =>
+          fields.map((field) => donationRef.where(field, '==', idValue).get())
+        )
+      );
+
+      const uniqueDocs = new Map();
+      snapshots.forEach((snap) => {
+        snap.forEach((docSnap) => {
+          if (!uniqueDocs.has(docSnap.id)) {
+            uniqueDocs.set(docSnap.id, docSnap.ref);
+          }
+        });
+      });
+
+      const batch = db.batch();
+      uniqueDocs.forEach((ref) => batch.delete(ref));
+      if (uniqueDocs.size > 0) {
+        await batch.commit();
+      }
+      console.log(`Deleted ${uniqueDocs.size} donationContracts for user ${userId}`);
     }
 
     // Delete from Firestore

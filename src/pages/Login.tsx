@@ -58,7 +58,7 @@ const Login = () => {
     }
     const success = await login(email, password);
     if (success) {
-      navigate("/dashboard");
+      navigate("/");
     } else {
       setError("Invalid credentials or not authorized");
     }
