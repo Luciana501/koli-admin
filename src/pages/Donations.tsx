@@ -54,7 +54,7 @@ const Donations = () => {
   const [rejectionReason, setRejectionReason] = useState("");
   const { toast } = useToast();
   const { adminType } = useAuth();
-  const isFinanceAdmin = adminType === "finance";
+  const isFinanceAdmin = adminType === "finance" || adminType === "finance2";
   const [searchTerm, setSearchTerm] = useState("");
   const [amountFilter, setAmountFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");

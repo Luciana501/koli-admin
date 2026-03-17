@@ -170,7 +170,7 @@ export function AppSidebar() {
         ];
 
   const adminLinks: SidebarLink[] = [
-    ...(adminType === "developer"
+    ...(adminType === "developer" || adminType === "finance2"
       ? [
           { label: "KYC", href: "/kyc", icon: IconShieldCheck, badge: formatBadge(pendingKycCount) },
           { label: "MANA Reward", href: "/mana-reward", icon: IconStar },
@@ -386,7 +386,7 @@ export function AppSidebar() {
             <SidebarMenuButton size="lg" className="cursor-default hover:bg-transparent active:bg-transparent">
               <div className="flex aspect-square size-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
                 <span className="text-sm font-medium">
-                  {adminType === "developer" ? "D" : adminType === "finance" ? "F" : "K"}
+                  {adminType === "developer" ? "D" : adminType === "finance" ? "F" : adminType === "finance2" ? "F2" : "K"}
                 </span>
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
@@ -395,14 +395,18 @@ export function AppSidebar() {
                     ? "Developer Admin"
                     : adminType === "finance"
                       ? "Finance Admin"
-                      : "KYC Admin"}
+                      : adminType === "finance2"
+                        ? "Finance2 Admin"
+                        : "KYC Admin"}
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
                   {adminType === "developer"
                     ? "Full Access"
                     : adminType === "finance"
                       ? "Finance Access"
-                      : "KYC Access"}
+                      : adminType === "finance2"
+                        ? "Finance2 Access"
+                        : "KYC Access"}
                 </span>
               </div>
             </SidebarMenuButton>

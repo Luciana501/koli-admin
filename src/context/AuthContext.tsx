@@ -10,15 +10,14 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   loading: boolean;
+  user: any | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const normalizeAdminType = (type: unknown): AdminType | null => {
-  if (type === "developer" || type === "finance" || type === "kyc") return type;
+  if (type === "developer" || type === "finance" || type === "finance2" || type === "kyc") return type as AdminType;
   if (type === "main") return "developer";
-  if (type === "finance2") return "finance";
-  if (type === "kyc_admin" || type === "kyc-admin") return "kyc";
   return null;
 };
 
@@ -26,13 +25,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [adminType, setAdminType] = useState<AdminType | null>(null);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
-        if (user) {
+        if (firebaseUser) {
+          setUser(firebaseUser);
           // Fetch admin type from Firestore
-          const adminDoc = await getDoc(doc(db, "admins", user.uid));
+          const adminDoc = await getDoc(doc(db, "admins", firebaseUser.uid));
           if (adminDoc.exists()) {
             const normalizedType = normalizeAdminType(adminDoc.data().type);
             if (normalizedType) {
@@ -51,12 +52,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         } else {
           setIsAuthenticated(false);
           setAdminType(null);
+          setUser(null);
         }
       } catch (error) {
         console.error("Auth state change error:", error);
         // If there's a permissions error, keep user logged out
         setIsAuthenticated(false);
         setAdminType(null);
+        setUser(null);
       } finally {
         setLoading(false);
       }
@@ -101,7 +104,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, adminType, login, logout, loading }}>
+    <AuthContext.Provider value={{ isAuthenticated, adminType, login, logout, loading, user }}>
       {!loading && children}
     </AuthContext.Provider>
   );

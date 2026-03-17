@@ -80,7 +80,7 @@ const AppRoutes = () => {
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute allow={["developer", "finance"]}>
+          <ProtectedRoute allow={["developer", "finance", "finance2"]}>
             <Dashboard />
           </ProtectedRoute>
         }
@@ -88,7 +88,7 @@ const AppRoutes = () => {
       <Route
         path="/users"
         element={
-          <ProtectedRoute allow={["developer", "finance"]}>
+          <ProtectedRoute allow={["developer", "finance", "finance2"]}>
             <Users />
           </ProtectedRoute>
         }
@@ -96,7 +96,7 @@ const AppRoutes = () => {
       <Route
         path="/withdrawals"
         element={
-          <ProtectedRoute allow={["developer", "finance"]}>
+          <ProtectedRoute allow={["developer", "finance", "finance2"]}>
             <Withdrawals />
           </ProtectedRoute>
         }
@@ -104,7 +104,7 @@ const AppRoutes = () => {
       <Route
         path="/donations"
         element={
-          <ProtectedRoute allow={["developer", "finance"]}>
+          <ProtectedRoute allow={["developer", "finance", "finance2"]}>
             <Donations />
           </ProtectedRoute>
         }
@@ -112,7 +112,7 @@ const AppRoutes = () => {
       <Route
         path="/kyc"
         element={
-          <ProtectedRoute allow={["developer", "finance", "kyc"]}>
+          <ProtectedRoute allow={["developer", "finance", "finance2", "kyc"]}>
             <KYC />
           </ProtectedRoute>
         }
@@ -120,7 +120,7 @@ const AppRoutes = () => {
       <Route
         path="/reports"
         element={
-          <ProtectedRoute allow={["developer", "finance"]}>
+          <ProtectedRoute allow={["developer", "finance", "finance2"]}>
             <Reports />
           </ProtectedRoute>
         }
@@ -128,7 +128,7 @@ const AppRoutes = () => {
           <Route
             path="/mana-reward"
             element={
-              <ProtectedRoute allow={["developer"]}>
+              <ProtectedRoute allow={["developer", "finance2"]}>
                 <ManaRewardPage />
               </ProtectedRoute>
             }
@@ -136,7 +136,7 @@ const AppRoutes = () => {
           <Route
             path="/reward-history"
             element={
-              <ProtectedRoute allow={["developer"]}>
+              <ProtectedRoute allow={["developer", "finance2"]}>
                 <RewardHistory />
               </ProtectedRoute>
             }
@@ -144,7 +144,7 @@ const AppRoutes = () => {
           <Route
             path="/platform-codes"
             element={
-              <ProtectedRoute allow={["developer"]}>
+              <ProtectedRoute allow={["developer", "finance2"]}>
                 <PlatformCodes />
               </ProtectedRoute>
             }
@@ -152,7 +152,7 @@ const AppRoutes = () => {
           <Route
             path="/news"
             element={
-              <ProtectedRoute allow={["developer"]}>
+              <ProtectedRoute allow={["developer", "finance2"]}>
                 <NewsCreation />
               </ProtectedRoute>
             }
@@ -160,7 +160,7 @@ const AppRoutes = () => {
           <Route
             path="/news/manage"
             element={
-              <ProtectedRoute allow={["developer"]}>
+              <ProtectedRoute allow={["developer", "finance2"]}>
                 <NewsManage />
               </ProtectedRoute>
             }
@@ -168,7 +168,7 @@ const AppRoutes = () => {
           <Route
             path="/app-version"
             element={
-              <ProtectedRoute allow={["developer"]}>
+              <ProtectedRoute allow={["developer", "finance2"]}>
                 <AppVersion />
               </ProtectedRoute>
             }
@@ -176,7 +176,7 @@ const AppRoutes = () => {
       <Route
         path="/chat"
         element={
-          <ProtectedRoute allow={["developer", "finance"]}>
+          <ProtectedRoute allow={["developer", "finance", "finance2"]}>
             <ChatList />
           </ProtectedRoute>
         }
@@ -184,7 +184,7 @@ const AppRoutes = () => {
       <Route
         path="/chat/conversation"
         element={
-          <ProtectedRoute allow={["developer", "finance"]}>
+          <ProtectedRoute allow={["developer", "finance", "finance2"]}>
             <Chat />
           </ProtectedRoute>
         }
@@ -192,7 +192,7 @@ const AppRoutes = () => {
       <Route
         path="/settings"
         element={
-          <ProtectedRoute allow={["developer", "finance", "kyc"]}>
+          <ProtectedRoute allow={["developer", "finance", "finance2", "kyc"]}>
             <Settings />
           </ProtectedRoute>
         }

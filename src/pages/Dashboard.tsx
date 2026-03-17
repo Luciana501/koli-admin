@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   MaintenanceSchedulerConfig,
@@ -35,6 +36,18 @@ import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 
 const Dashboard = () => {
   const { adminType } = useAuth();
+  const navigate = useNavigate();
+  // Restrict KYC role
+  useEffect(() => {
+    if (adminType === "kyc") {
+      navigate("/kyc", { replace: true });
+    }
+    // Prompt password change for finance2 and kyc
+    // TODO: Check mustChangePassword from Firestore and redirect if needed
+    // if (adminType === "finance2" || adminType === "kyc") {
+    //   navigate("/ChangePassword");
+    // }
+  }, [adminType, navigate]);
   const { toast } = useToast();
 
   const [stats, setStats] = useState({

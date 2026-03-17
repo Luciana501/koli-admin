@@ -1,0 +1,51 @@
+[33mb80a7ee[m[33m ([m[1;36mHEAD[m[33m)[m minor tweaks
+[33m10b0a30[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Added Settings page, removed presale admin page
+[33m495c4da[m Fixed Errors on Donations Page
+[33m47275f4[m Added Features in Donations Page
+[33md050821[m Updated Firestore
+[33m295908f[m Fixed Donations Bugs
+[33m5a779ae[m Fine Tuned 2.0
+[33mc51d6ec[m css fix
+[33m907d6e7[m embed fix
+[33m86bad42[m placeholder presale
+[33m2e3a72d[m Fix Anchor IDL typing for Program init
+[33md55cfa9[m Trigger presale redeploy
+[33m10e81e4[m Fix presale admin tx result type mapping
+[33mf350437[m Add presale admin app and sidebar integration
+[33m6c959cc[m `Added presale admin URL and navigation link`
+[33mdab39b8[m local changes before pull
+[33m89def30[m Fixed Bugs and Layouts
+[33mdff6f0a[m Added filtering for Platform Codes
+[33ma1dfcd4[m Fixed Numbering in Users Table
+[33m324b939[m Added Discrepancy for Donations
+[33m5939efe[m Added Suspend Button for user
+[33ma72a302[m Fine Tuned, Ready for Actual
+[33m8de02ac[m Added docker file
+[33mbea0470[m Added App Version Control
+[33mf11b26e[m Resolve Merge
+[33m492c36d[m Added Machine Learning for ID Validation
+[33m1c5774d[m news added
+[33m6754000[m Added Maintenance Scheduler
+[33m5f85967[m Added Vercel.json file
+[33m1112c76[m Added Code Generator on Platform Codes
+[33mb9f28f9[m Added Pagination on Platform Codes Page
+[33m8374145[m Revised Reward History
+[33m7da23b7[m Updated Version
+[33m7f33084[m rejection reasons
+[33m3d6ca72[m Added withdrawal leaders dropdown
+[33m89f32b3[m Added Leaders Dropdown for withdrawals.
+[33m6e1c1e1[m platform codes added
+[33m6d12ea5[m Fixed Admin Interfaces
+[33m7dd1a55[m Added Responsive for User Page
+[33mfc30ddf[m Merge remote changes with local UI updates
+[33m82c053e[m Update UI layout and styling across admin pages
+[33m2c9189c[m odhex added
+[33m5c2a3af[m Fine Tuned
+[33m3f684b2[m Second Initial Commit
+[33md6bf6ea[m Add withdrawal rejection workflow, auto-expiring reward codes, and UI improvements
+[33m1f17e5d[m admin tweaks
+[33mee8bd20[m Added Functionalities
+[33m6de46d9[m Initial Commit
+[33m4a18519[m Implement admin UI scaffolding
+[33md324c8e[m Changes
+[33mb331aa1[m template: new_style_vite_react_shadcn_ts_testing_2026-01-08
