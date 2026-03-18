@@ -59,7 +59,6 @@ const Donations = () => {
   const [amountFilter, setAmountFilter] = useState("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [sortOrder, setSortOrder] = useState<"latest" | "oldest">("latest");
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
   const [minAmount, setMinAmount] = useState("");
@@ -77,13 +76,16 @@ const Donations = () => {
     return () => unsubscribe();
   }, []);
 
-  const pendingDonations = useMemo(
-    () =>
-      [...donations]
-        .filter((donation) => donation.status === "pending")
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [donations]
-  );
+  const pendingDonations = useMemo(() => {
+    const shuffled = [...donations].filter((donation) => donation.status === "pending");
+
+    for (let i = shuffled.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    return shuffled;
+  }, [donations]);
 
   const historySourceDonations = useMemo(
     () => donations.filter((donation) => donation.status !== "pending"),
@@ -150,15 +152,13 @@ const Donations = () => {
       return matchesSearch && matchesAmount && matchesPaymentMethod && matchesStatus && matchesDate;
     });
 
-    return [...filtered].sort((a, b) => {
-      const createdAtA = new Date(a.createdAt).getTime();
-      const createdAtB = new Date(b.createdAt).getTime();
-      if (sortOrder === "latest") {
-        return createdAtB - createdAtA;
-      }
-      return createdAtA - createdAtB;
-    });
-  }, [historySourceDonations, searchTerm, amountFilter, paymentMethodFilter, statusFilter, sortOrder, dateFromFilter, dateToFilter, minAmount, maxAmount]);
+    for (let i = filtered.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [filtered[i], filtered[j]] = [filtered[j], filtered[i]];
+    }
+
+    return filtered;
+  }, [historySourceDonations, searchTerm, amountFilter, paymentMethodFilter, statusFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
   const acceptedHistoryDonations = useMemo(
     () => historyDonations.filter((donation) => donation.status === "approved" || donation.status === "active"),
@@ -202,7 +202,6 @@ const Donations = () => {
     amountFilter !== "all" ||
     paymentMethodFilter !== "all" ||
     statusFilter !== "all" ||
-    sortOrder !== "latest" ||
     dateFromFilter ||
     dateToFilter ||
     minAmount ||
@@ -210,14 +209,13 @@ const Donations = () => {
 
   useEffect(() => {
     setHistoryPage(1);
-  }, [searchTerm, amountFilter, paymentMethodFilter, statusFilter, sortOrder, dateFromFilter, dateToFilter, minAmount, maxAmount]);
+  }, [searchTerm, amountFilter, paymentMethodFilter, statusFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
   const clearFilters = () => {
     setSearchTerm("");
     setAmountFilter("all");
     setPaymentMethodFilter("all");
     setStatusFilter("all");
-    setSortOrder("latest");
     setDateFromFilter("");
     setDateToFilter("");
     setMinAmount("");
@@ -796,19 +794,6 @@ const Donations = () => {
           {showFilters && (
             <div className="bg-muted/50 p-4 rounded-lg space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Sort By</label>
-                  <Select value={sortOrder} onValueChange={(value: "latest" | "oldest") => setSortOrder(value)}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="Sort order" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="latest">Latest First</SelectItem>
-                      <SelectItem value="oldest">Oldest First</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Status</label>
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
