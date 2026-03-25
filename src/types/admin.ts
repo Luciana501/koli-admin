@@ -123,7 +123,13 @@ export interface ODHexWithdrawal {
   method: "ewallet" | "bank";
   provider: string;
   accountDetails: string;
-  status: "pending" | "completed" | "rejected";
+  status:
+    | "pending"
+    | "completed"
+    | "rejected"
+    | "FIAT_EXCHANGING"
+    | "APPROVED"
+    | "REJECTED";
   requestedAt: string;
   processedAt: string | null;
   processedBy?: string | null;

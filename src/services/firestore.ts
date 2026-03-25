@@ -969,7 +969,15 @@ export const subscribeToODHexWithdrawals = (callback: (withdrawals: import("@/ty
             method: data.method || "ewallet",
             provider: data.provider || "",
             accountDetails: data.accountDetails || "",
-            status: data.status || "pending",
+            status:
+              String(data.status || "pending").toLowerCase() === "fiat_exchanging"
+                ? "FIAT_EXCHANGING"
+                : String(data.status || "pending").toLowerCase() === "approved" ||
+                  String(data.status || "pending").toLowerCase() === "completed"
+                ? "APPROVED"
+                : String(data.status || "pending").toLowerCase() === "rejected"
+                ? "REJECTED"
+                : "pending",
             requestedAt: data.requestedAt || new Date().toISOString(),
             processedAt: data.processedAt || null,
             processedBy: data.processedBy || null,
@@ -1052,17 +1060,41 @@ const resolveODHexMemberRef = async (
 
 export const updateODHexWithdrawalStatus = async (
   withdrawalId: string,
-  status: "pending" | "completed" | "rejected",
+  status:
+    | "pending"
+    | "completed"
+    | "rejected"
+    | "FIAT_EXCHANGING"
+    | "APPROVED"
+    | "REJECTED",
   processedBy?: string,
   rejectionReason?: string
 ): Promise<boolean> => {
   try {
     const withdrawalRef = doc(db, "odhexWithdrawals", withdrawalId);
+    const normalizedStatus = String(status || "").toLowerCase();
+    const writeStatus =
+      normalizedStatus === "fiat_exchanging"
+        ? "FIAT_EXCHANGING"
+        : normalizedStatus === "approved" || normalizedStatus === "completed"
+        ? "APPROVED"
+        : normalizedStatus === "rejected"
+        ? "REJECTED"
+        : "pending";
 
     // Simple update path for non-rejected statuses
-    if (status !== "rejected") {
+    if (normalizedStatus !== "rejected") {
+      if (writeStatus === "FIAT_EXCHANGING") {
+        await updateDoc(withdrawalRef, {
+          status: writeStatus,
+          fiatExchangingAt: new Date().toISOString(),
+          processedBy: processedBy || "",
+        });
+        return true;
+      }
+
       await updateDoc(withdrawalRef, {
-        status,
+        status: writeStatus,
         processedAt: new Date().toISOString(),
         processedBy: processedBy || "",
       });
@@ -1099,7 +1131,7 @@ export const updateODHexWithdrawalStatus = async (
       const latestStatus = String(latestWithdrawal.status || "").toLowerCase();
 
       const baseUpdate = {
-        status,
+        status: writeStatus,
         processedAt: nowIso,
         processedBy: processedBy || "",
         rejectionReason: normalizedReason,

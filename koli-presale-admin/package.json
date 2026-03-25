@@ -25,7 +25,8 @@
     "tailwind-merge": "^2.4.0",
     "lucide-react": "^0.400.0",
     "date-fns": "^3.6.0",
-    "bs58": "^5.0.0"
+    "bs58": "^5.0.0",
+    "firebase-admin": "^13.5.0"
   },
   "devDependencies": {
     "@types/node": "^20",

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Withdrawal, ODHexWithdrawal } from "@/types/admin";
 import { updateWithdrawalStatus, subscribeToODHexWithdrawals, updateODHexWithdrawalStatus } from "@/services/firestore";
+import { startFiatExchange, completeKashCashout, rejectKashCashout } from "@/services/cashouts";
 import { useAuth } from "@/context/AuthContext";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -86,6 +87,14 @@ const Withdrawals = () => {
   const { adminType } = useAuth();
   const { toast } = useToast();
   const itemsPerPage = 50;
+
+  const normalizeODHexStatus = (status: string) => {
+    const normalized = String(status || "pending").toLowerCase();
+    if (normalized === "fiat_exchanging") return "FIAT_EXCHANGING";
+    if (normalized === "approved" || normalized === "completed") return "APPROVED";
+    if (normalized === "rejected") return "REJECTED";
+    return "pending";
+  };
 
   useEffect(() => {
     // Subscribe to ODHex withdrawals
@@ -439,7 +448,7 @@ const Withdrawals = () => {
 
       // Status filter (history statuses)
       const matchesStatus = !statusFilter || statusFilter === "all" ||
-        w.status.toLowerCase() === statusFilter.toLowerCase();
+        normalizeODHexStatus(w.status).toLowerCase() === statusFilter.toLowerCase();
       
       // Date range filter
       let matchesDate = true;
@@ -460,9 +469,15 @@ const Withdrawals = () => {
     return filtered;
   }, [odhexWithdrawals, searchTerm, amountFilter, paymentMethodFilter, withdrawalTypeFilter, statusFilter, dateFromFilter, dateToFilter, minAmount, maxAmount]);
 
-  const odhexActiveWithdrawals = filteredODHexWithdrawals.filter((w) => w.status === "pending");
+  const odhexActiveWithdrawals = filteredODHexWithdrawals.filter((w) => {
+    const normalizedStatus = normalizeODHexStatus(w.status);
+    return normalizedStatus === "pending" || normalizedStatus === "FIAT_EXCHANGING";
+  });
   const odhexHistoryWithdrawals = filteredODHexWithdrawals.filter(
-    (w) => w.status === "completed" || w.status === "rejected"
+    (w) => {
+      const normalizedStatus = normalizeODHexStatus(w.status);
+      return normalizedStatus === "APPROVED" || normalizedStatus === "REJECTED";
+    }
   );
 
   const odhexLeaderOptions = useMemo(() => {
@@ -718,17 +733,63 @@ const Withdrawals = () => {
   };
   
   // ODHex Withdrawal Handlers
-  const handleApproveODHex = async (withdrawal: ODHexWithdrawal) => {
+  const handleStartODHexProcessing = async (withdrawal: ODHexWithdrawal) => {
     try {
-      await updateODHexWithdrawalStatus(withdrawal.id, "completed", adminType || "");
+      const started = await updateODHexWithdrawalStatus(
+        withdrawal.id,
+        "FIAT_EXCHANGING",
+        adminType || ""
+      );
+
+      if (!started) {
+        throw new Error("Failed to set FIAT_EXCHANGING");
+      }
+
+      // Attempt to start fiat exchange on K-Kash side (non-blocking)
+      startFiatExchange(withdrawal.id).catch((err) => {
+        console.warn("K-Kash fiat exchange start failed:", err);
+      });
+
       toast({
-        title: "Withdrawal Approved",
-        description: `₱${withdrawal.amount.toLocaleString()} withdrawal to ${withdrawal.provider} has been marked as completed.`,
+        title: "Processing Started",
+        description: `Withdrawal has been marked for fiat exchange. Proceed to approve or reject.`,
       });
     } catch (error) {
+      console.error("Error in handleStartODHexProcessing:", error);
       toast({
         title: "Error",
-        description: "Failed to approve withdrawal. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to start processing. Try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleApproveODHex = async (withdrawal: ODHexWithdrawal) => {
+    try {
+      const completed = await updateODHexWithdrawalStatus(
+        withdrawal.id,
+        "APPROVED",
+        adminType || ""
+      );
+
+      if (!completed) {
+        throw new Error("Failed to set APPROVED status");
+      }
+
+      // Attempt to complete cashout on K-Kash side (non-blocking)
+      completeKashCashout(withdrawal.id).catch((err) => {
+        console.warn("K-Kash cashout completion failed:", err);
+      });
+
+      toast({
+        title: "Withdrawal Approved",
+        description: `₱${withdrawal.amount.toLocaleString()} withdrawal to ${withdrawal.provider} has been marked as approved.`,
+      });
+    } catch (error) {
+      console.error("Error in handleApproveODHex:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to approve withdrawal. Try again.",
         variant: "destructive",
       });
     }
@@ -736,16 +797,23 @@ const Withdrawals = () => {
 
   const handleRejectODHex = async (withdrawal: ODHexWithdrawal, reason: string) => {
     try {
-      await updateODHexWithdrawalStatus(withdrawal.id, "rejected", adminType || "", reason);
+      await updateODHexWithdrawalStatus(withdrawal.id, "REJECTED", adminType || "", reason);
+      
+      // Attempt to reject on K-Kash side (non-blocking)
+      rejectKashCashout(withdrawal.id, reason).catch((err) => {
+        console.warn("K-Kash cashout rejection failed:", err);
+      });
+      
       toast({
         title: "Withdrawal Rejected",
         description: `Withdrawal has been rejected and refunded to the user's vault balance.`,
         variant: "destructive",
       });
     } catch (error) {
+      console.error("Error in handleRejectODHex:", error);
       toast({
         title: "Error",
-        description: "Failed to reject withdrawal. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to reject withdrawal. Please try again.",
         variant: "destructive",
       });
     }
@@ -888,7 +956,7 @@ const Withdrawals = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Statuses</SelectItem>
-                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
                     <SelectItem value="rejected">Rejected</SelectItem>
                   </SelectContent>
                 </Select>
@@ -1026,6 +1094,7 @@ const Withdrawals = () => {
             </thead>
             <tbody>
               {paginatedHistory.map((withdrawal, index) => {
+                const normalizedStatus = normalizeODHexStatus(withdrawal.status);
                 return (
                   <tr
                     key={withdrawal.id}
@@ -1041,7 +1110,7 @@ const Withdrawals = () => {
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm font-semibold">₱{withdrawal.amount.toLocaleString()}</div>
-                      {withdrawal.status === "rejected" && (
+                      {normalizedStatus === "REJECTED" && (
                         <div className="text-xs text-muted-foreground">
                           Refunded: ₱{(withdrawal.refundAmount || withdrawal.amount).toLocaleString()}
                         </div>
@@ -1058,12 +1127,12 @@ const Withdrawals = () => {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        withdrawal.status === "completed"
+                        normalizedStatus === "APPROVED"
                           ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
                           : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
                       }`}>
-                        {withdrawal.status === "completed"
-                          ? "Completed"
+                        {normalizedStatus === "APPROVED"
+                          ? "Approved"
                           : withdrawal.refundApplied
                           ? "Refunded"
                           : "Rejected"}
@@ -1155,6 +1224,9 @@ const Withdrawals = () => {
                 </thead>
                 <tbody>
                   {group.withdrawals.map((withdrawal) => (
+                    (() => {
+                      const normalizedStatus = normalizeODHexStatus(withdrawal.status);
+                      return (
                     <tr key={withdrawal.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium">{withdrawal.userEmail}</div>
@@ -1180,13 +1252,21 @@ const Withdrawals = () => {
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          withdrawal.status === "pending"
+                          normalizedStatus === "pending"
                             ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
-                            : withdrawal.status === "completed"
+                            : normalizedStatus === "FIAT_EXCHANGING"
+                            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
+                            : normalizedStatus === "APPROVED"
                             ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
                             : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
                         }`}>
-                          {withdrawal.status}
+                          {normalizedStatus === "FIAT_EXCHANGING"
+                            ? "Fiat Exchanging"
+                            : normalizedStatus === "APPROVED"
+                            ? "Approved"
+                            : normalizedStatus === "REJECTED"
+                            ? "Rejected"
+                            : "Pending"}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -1205,6 +1285,8 @@ const Withdrawals = () => {
                         </div>
                       </td>
                     </tr>
+                      );
+                    })()
                   ))}
                 </tbody>
               </table>
@@ -1517,6 +1599,9 @@ const Withdrawals = () => {
             </DialogDescription>
           </DialogHeader>
           {selectedOdhexWithdrawal && (
+            (() => {
+              const normalizedSelectedStatus = normalizeODHexStatus(selectedOdhexWithdrawal.status);
+              return (
             <div className="space-y-4">
               {/* User Information */}
               <div className="bg-muted/50 p-3 md:p-4 rounded-lg">
@@ -1550,15 +1635,23 @@ const Withdrawals = () => {
                     <span className="font-medium text-muted-foreground">Status:</span>
                     <div className="mt-1">
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        selectedOdhexWithdrawal.status === "pending" 
+                        normalizedSelectedStatus === "pending" 
                           ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
-                          : selectedOdhexWithdrawal.status === "completed"
+                          : normalizedSelectedStatus === "FIAT_EXCHANGING"
+                          ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
+                          : normalizedSelectedStatus === "APPROVED"
                           ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
                           : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
                       }`}>
-                        {selectedOdhexWithdrawal.status === "rejected" && selectedOdhexWithdrawal.refundApplied
+                        {normalizedSelectedStatus === "REJECTED" && selectedOdhexWithdrawal.refundApplied
                           ? "refunded"
-                          : selectedOdhexWithdrawal.status}
+                          : normalizedSelectedStatus === "FIAT_EXCHANGING"
+                          ? "Fiat Exchanging"
+                          : normalizedSelectedStatus === "APPROVED"
+                          ? "Approved"
+                          : normalizedSelectedStatus === "REJECTED"
+                          ? "Rejected"
+                          : "Pending"}
                       </span>
                     </div>
                   </div>
@@ -1598,14 +1691,14 @@ const Withdrawals = () => {
               </div>
 
               {/* Rejection Reason (if rejected) */}
-              {selectedOdhexWithdrawal.status === "rejected" && selectedOdhexWithdrawal.rejectionReason && (
+              {normalizedSelectedStatus === "REJECTED" && selectedOdhexWithdrawal.rejectionReason && (
                 <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-200 dark:border-red-800">
                   <h3 className="font-semibold text-red-800 dark:text-red-300 mb-2">Rejection Reason</h3>
                   <p className="text-sm text-red-700 dark:text-red-400">{selectedOdhexWithdrawal.rejectionReason}</p>
                 </div>
               )}
 
-              {selectedOdhexWithdrawal.status === "rejected" && (
+              {normalizedSelectedStatus === "REJECTED" && (
                 <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
                   <h3 className="font-semibold text-blue-800 dark:text-blue-300 mb-2">Refund Details</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
@@ -1639,8 +1732,24 @@ const Withdrawals = () => {
                 </div>
               )}
 
-              {/* Action Buttons (finance only, and only if pending) */}
-              {selectedOdhexWithdrawal.status === "pending" && isFinanceAdmin && (
+              {/* Action Buttons - Step 1: Start Processing (pending status only) */}
+              {normalizedSelectedStatus === "pending" && isFinanceAdmin && (
+                <div className="border-t pt-4 space-y-4">
+                  <button
+                    onClick={async () => {
+                      await handleStartODHexProcessing(selectedOdhexWithdrawal);
+                      // Don't close modal - let user see status update to FIAT_EXCHANGING
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
+                  >
+                    <IconCheck className="h-4 w-4" />
+                    Start Processing
+                  </button>
+                </div>
+              )}
+
+              {/* Action Buttons - Step 2: Approve/Reject (FIAT_EXCHANGING status only) */}
+              {normalizedSelectedStatus === "FIAT_EXCHANGING" && isFinanceAdmin && (
                 <div className="border-t pt-4 space-y-4">
                   <div className="flex flex-col sm:flex-row gap-3">
                     <button
@@ -1652,7 +1761,7 @@ const Withdrawals = () => {
                       className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 transition-colors"
                     >
                       <IconCheck className="h-4 w-4" />
-                      Complete Withdrawal
+                      Approve Withdrawal
                     </button>
                   </div>
                   
@@ -1689,7 +1798,7 @@ const Withdrawals = () => {
                 </div>
               )}
 
-              {selectedOdhexWithdrawal.status === "pending" && !isFinanceAdmin && (
+              {(normalizedSelectedStatus === "pending" || normalizedSelectedStatus === "FIAT_EXCHANGING") && !isFinanceAdmin && (
                 <div className="border-t pt-4">
                   <p className="text-sm text-muted-foreground">
                     View only. Only finance admin can process ODHex withdrawals.
@@ -1697,6 +1806,8 @@ const Withdrawals = () => {
                 </div>
               )}
             </div>
+              );
+            })()
           )}
         </DialogContent>
       </Dialog>
