@@ -109,6 +109,15 @@ const Withdrawals = () => {
     };
   }, []);
 
+  // Keep the selected ODHex withdrawal in sync with live updates
+  useEffect(() => {
+    if (!selectedOdhexWithdrawal) return;
+    const latest = odhexWithdrawals.find((w) => w.id === selectedOdhexWithdrawal.id);
+    if (latest && latest !== selectedOdhexWithdrawal) {
+      setSelectedOdhexWithdrawal(latest);
+    }
+  }, [odhexWithdrawals, selectedOdhexWithdrawal]);
+
   useEffect(() => {
     const platformCodesQuery = query(
       collection(db, "platformCodes"),
@@ -744,6 +753,13 @@ const Withdrawals = () => {
       if (!started) {
         throw new Error("Failed to set FIAT_EXCHANGING");
       }
+
+      // Optimistically update the modal to show FIAT_EXCHANGING immediately
+      setSelectedOdhexWithdrawal((prev) =>
+        prev && prev.id === withdrawal.id
+          ? { ...prev, status: "FIAT_EXCHANGING", processedBy: adminType || prev.processedBy }
+          : prev
+      );
 
       // Attempt to start fiat exchange on K-Kash side (non-blocking)
       startFiatExchange(withdrawal.id).catch((err) => {
