@@ -30,6 +30,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
+        console.info("[auth] state change", firebaseUser ? { uid: firebaseUser.uid, email: firebaseUser.email } : "signed_out");
         if (firebaseUser) {
           setUser(firebaseUser);
           // Fetch admin type from Firestore
@@ -72,6 +73,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
+      console.info("[auth] login success", { uid: user.uid, email: user.email });
 
       // Fetch admin type from Firestore
       const adminDoc = await getDoc(doc(db, "admins", user.uid));
@@ -88,7 +90,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await signOut(auth);
       return false;
     } catch (error) {
-      console.error("Login error:", error);
+      console.error("[auth] login error", error);
       return false;
     }
   };
